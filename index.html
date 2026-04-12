@@ -38,6 +38,7 @@ body{overflow:hidden}
 .stabs::-webkit-scrollbar{display:none}
 .stab{padding:6px 14px;border-radius:20px;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer;background:var(--bg2);color:var(--text2);border:none;font-family:inherit;flex-shrink:0}
 .stab.on{background:var(--green);color:#000}
+.update-bar{display:none;background:var(--blue);color:#fff;text-align:center;font-size:13px;font-weight:600;padding:10px 16px;cursor:pointer;position:relative;z-index:20;letter-spacing:.01em}
 
 .titem{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0;border:none;background:none;color:var(--text3);font-size:9px;font-weight:500;font-family:inherit;cursor:pointer}
 .titem.on{color:var(--green)}
@@ -201,6 +202,7 @@ input::placeholder{color:var(--text3)}
 </head>
 <body>
 <div id="app">
+  <div class="update-bar" id="updateBar" onclick="applyUpdate()">🔄 Neue Version verfügbar – Tippen zum Aktualisieren</div>
   <div id="hdr">
     <div class="hdr-top">
       <button class="hdr-btn" id="bPrev">‹</button>
@@ -917,6 +919,30 @@ clockT=setInterval(()=>{if(sec==='dashboard')render();},60000);
 load();
 if(!getProf()) showSetup(false);
 else render();
+
+/* ── Service Worker ── */
+let _newSW = null;
+function applyUpdate(){
+  if(_newSW){ _newSW.postMessage({action:'skipWaiting'}); }
+  window.location.reload();
+}
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js').then(reg => {
+    reg.addEventListener('updatefound', () => {
+      const sw = reg.installing;
+      sw.addEventListener('statechange', () => {
+        if(sw.state === 'installed' && navigator.serviceWorker.controller){
+          _newSW = sw;
+          document.getElementById('updateBar').style.display = 'block';
+        }
+      });
+    });
+  });
+  // If SW controller changes (after skipWaiting), reload
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload();
+  });
+}
 </script>
 </body>
 </html>
