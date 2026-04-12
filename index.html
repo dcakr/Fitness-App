@@ -418,6 +418,17 @@ function getLatestWeight(){
   }
   return null;
 }
+/* Grundumsatz (Harris-Benedict) + Richtwert */
+function grundumsatz(p,kg){
+  if(!p||!p.age||!p.height)return null;
+  const w=kg||parseFloat(p.weight);
+  if(!w)return null;
+  // Harris-Benedict
+  const gz=p.gender==='w'
+    ? 655 + 9.6*w + 1.8*p.height - 4.7*p.age
+    : 66  + 13.7*w + 5*p.height  - 6.8*p.age;
+  return Math.round(gz);
+}
 function progBar(pct,color){
   const b=h('div',{style:'height:7px;background:var(--bg3);border-radius:4px;overflow:hidden;margin-top:8px'});
   b.append(h('div',{style:'height:100%;width:'+Math.min(100,Math.max(0,pct))+'%;background:'+color+';border-radius:4px;transition:width .4s'}));
@@ -504,6 +515,23 @@ function rDashboard(){
         ):null
       );
     })(),
+    prof&&prof.age?(() => {
+      const latestKg=getLatestWeight();
+      const curKg=latestKg||parseFloat(prof.weight)||null;
+      const gz=grundumsatz(prof,curKg);
+      if(!gz)return null;
+      const deficit=Math.round(gz*0.8);
+      return h('div',{class:'card',style:'margin-bottom:11px'},
+        h('div',{class:'ctitle',style:'color:var(--teal)'},'Tagesenergie'),
+        h('div',{class:'sg2'},
+          h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--teal)'},gz+' kcal'),h('div',{class:'sl'},'Grundumsatz')),
+          h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--green)'},'~'+deficit+' kcal'),h('div',{class:'sl'},'Abnehm-Richtwert')),
+        ),
+        h('div',{style:'font-size:11px;color:var(--text2);margin-top:8px;line-height:1.5'},
+          'Richtwert ohne Sport. Mit Bewegung steigt dein Bedarf automatisch. Intervallfasten ersetzt das Zählen.'
+        )
+      );
+    })():null,
     h('div',{class:'se'})
   );
 }
@@ -821,9 +849,11 @@ function rProfil(){
     ),
     h('div',{class:'sg2',style:'margin-bottom:11px'},
       h('div',{class:'sc'},h('div',{class:'sv'},p.height+' cm'),h('div',{class:'sl'},'Körpergröße')),
+      h('div',{class:'sc'},h('div',{class:'sv'},p.age?p.age+' J':'–'),h('div',{class:'sl'},'Alter')),
       h('div',{class:'sc'},h('div',{class:'sv'},p.weight+' kg'),h('div',{class:'sl'},'Startgewicht')),
       h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--green)'},p.targetWeight?p.targetWeight+' kg':'–'),h('div',{class:'sl'},'Zielgewicht')),
       h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--amber)'},bmiCalc(parseFloat(p.weight),p.height)||'–'),h('div',{class:'sl'},'Start-BMI')),
+      (() => { const gz=grundumsatz(p,null); return gz?h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--teal)'},gz+' kcal'),h('div',{class:'sl'},'Grundumsatz')):null; })(),
     ),
     h('button',{class:'edit-btn',onClick:()=>showSetup(true)},'✏️  Profil bearbeiten'),
     h('div',{class:'se'})
@@ -842,6 +872,7 @@ function showSetup(edit=false){
   const htI=Object.assign(document.createElement('input'),{type:'number',value:p.height||'',placeholder:'z.B. 178',className:'setup-inp'});
   const wI=Object.assign(document.createElement('input'),{type:'number',step:'0.1',value:p.weight||'',placeholder:'z.B. 88.5',className:'setup-inp'});
   const tgI=Object.assign(document.createElement('input'),{type:'number',step:'0.1',value:p.targetWeight||'',placeholder:'z.B. 83.0',className:'setup-inp'});
+  const ageI=Object.assign(document.createElement('input'),{type:'number',value:p.age||'',placeholder:'z.B. 42',className:'setup-inp'});
   const mB=h('div',{class:'gbtn'+(g==='m'?' on':''),onClick:()=>{g='m';mB.className='gbtn on';wB.className='gbtn';}},'💪',h('span',{},'Mann'));
   const wB=h('div',{class:'gbtn'+(g==='w'?' on':''),onClick:()=>{g='w';wB.className='gbtn on';mB.className='gbtn';}},'🌸',h('span',{},'Frau'));
   scr.append(
@@ -853,8 +884,9 @@ function showSetup(edit=false){
     h('label',{class:'slabel'},'Körpergröße (cm)'),htI,
     h('label',{class:'slabel'},'Startgewicht (kg)'),wI,
     h('label',{class:'slabel'},'Zielgewicht (kg)'),tgI,
+    h('label',{class:'slabel'},'Alter (Jahre)'),ageI,
     h('button',{class:'save-btn',onClick:()=>{
-      saveProf({name:nameI.value||'Du',gender:g||'m',height:parseFloat(htI.value)||175,weight:parseFloat(wI.value)||85,targetWeight:parseFloat(tgI.value)||null});
+      saveProf({name:nameI.value||'Du',gender:g||'m',height:parseFloat(htI.value)||175,weight:parseFloat(wI.value)||85,targetWeight:parseFloat(tgI.value)||null,age:parseInt(ageI.value)||null});
       scr.style.display='none';sec='dashboard';render();
     }},edit?'Speichern ✓':'Los geht\'s! 💪')
   );
