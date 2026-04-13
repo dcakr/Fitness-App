@@ -29,10 +29,14 @@ body{overflow:hidden}
 #cnt::-webkit-scrollbar{display:none}
 #tbar{padding:6px 0 calc(var(--safe-bot)+2px);background:rgba(28,28,30,.94);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:.5px solid var(--border);display:flex;z-index:10}
 
-.hdr-top{display:flex;align-items:center;justify-content:space-between;padding-bottom:7px}
-.hdr-title{flex:1;text-align:center;font-size:17px;font-weight:600}
-.hdr-sub{text-align:center;font-size:11px;color:var(--text2);padding-bottom:6px}
-.hdr-btn{width:34px;height:34px;border-radius:50%;border:none;background:var(--bg2);color:var(--text);font-size:17px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;padding-bottom:10px}
+.hdr-center{flex:1;text-align:center;padding:0 8px}
+.hdr-weekday{font-size:13px;font-weight:500;color:var(--green);text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px}
+.hdr-daynum{font-size:42px;font-weight:700;line-height:1;letter-spacing:-1px}
+.hdr-monthyear{font-size:13px;color:var(--text2);margin-top:2px}
+.hdr-today-pill{display:inline-block;background:var(--green);color:#000;border-radius:6px;font-size:10px;font-weight:700;padding:2px 8px;margin-top:3px;letter-spacing:.04em}
+.hdr-mon-pill{display:inline-block;background:var(--amber);color:#000;border-radius:6px;font-size:10px;font-weight:700;padding:2px 8px;margin-top:3px;letter-spacing:.04em}
+.hdr-btn{width:36px;height:36px;border-radius:50%;border:none;background:var(--bg2);color:var(--text);font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
 .saved{height:14px;text-align:center;font-size:11px;color:var(--green);opacity:0;transition:opacity .3s}
 .stabs{display:flex;gap:6px;padding:6px 0 10px;overflow-x:auto;scrollbar-width:none}
 .stabs::-webkit-scrollbar{display:none}
@@ -206,10 +210,7 @@ input::placeholder{color:var(--text3)}
   <div id="hdr">
     <div class="hdr-top">
       <button class="hdr-btn" id="bPrev">‹</button>
-      <div class="hdr-center">
-        <div class="hdr-title" id="hTitle"></div>
-        <div class="hdr-sub" id="hSub"></div>
-      </div>
+      <div class="hdr-center" id="hdrCenter"></div>
       <button class="hdr-btn" id="bProf">👤</button>
     </div>
     <div class="saved" id="saved">Gespeichert ✓</div>
@@ -456,6 +457,44 @@ function getAllWeights(){
 }
 
 /* ════════════════════════════════
+   GOAL TRACKER
+════════════════════════════════ */
+function calcGoal(){
+  const p=getProf();
+  if(!p||!p.goalWeeks||!p.targetWeight||!p.weight)return null;
+  const startKg=parseFloat(p.weight);
+  const targetKg=parseFloat(p.targetWeight);
+  const totalLoss=startKg-targetKg;
+  if(totalLoss<=0)return null;
+
+  const startDate=new Date(p.goalStart||new Date().toISOString().split('T')[0]);
+  const endDate=new Date(startDate);
+  endDate.setDate(endDate.getDate()+p.goalWeeks*7);
+  const today=new Date();
+  today.setHours(0,0,0,0);
+
+  const totalDays=Math.round((endDate-startDate)/(1000*60*60*24));
+  const daysGone=Math.max(0,Math.round((today-startDate)/(1000*60*60*24)));
+  const daysLeft=Math.max(0,Math.round((endDate-today)/(1000*60*60*24)));
+  const weeksLeft=Math.ceil(daysLeft/7);
+  const timePct=Math.min(100,Math.round(daysGone/totalDays*100));
+
+  const curKg=getLatestWeight()||startKg;
+  const lostKg=Math.max(0,startKg-curKg);
+  const weightPct=Math.min(100,Math.round(lostKg/totalLoss*100));
+
+  // weekly target
+  const weeklyTarget=(totalLoss/p.goalWeeks).toFixed(2);
+  const weeklyActual=daysGone>0?(lostKg/(daysGone/7)).toFixed(2):0;
+
+  // on track?
+  const expectedLoss=(daysGone/totalDays)*totalLoss;
+  const onTrack=lostKg>=expectedLoss*0.85;
+
+  return{startKg,targetKg,totalLoss,curKg,lostKg,weightPct,timePct,daysLeft,weeksLeft,endDate,weeklyTarget,weeklyActual,onTrack,totalDays,daysGone};
+}
+
+/* ════════════════════════════════
    AUTO SCORING
 ════════════════════════════════ */
 function calcScore(d){
@@ -585,6 +624,54 @@ function rDashboard(){
           progBar(pct,'var(--green)'),
           h('div',{style:'text-align:right;font-size:11px;color:var(--text2);margin-top:4px'},doneLoss.toFixed(1)+' von '+totalLoss.toFixed(1)+' kg abgenommen')
         ):null
+      );
+    })(),
+    // Goal tracker card
+    (()=>{
+      const g=calcGoal();
+      if(!g)return null;
+      const wCol=g.weightPct>=g.timePct?'var(--green)':g.onTrack?'var(--amber)':'var(--red)';
+      return h('div',{class:'card',style:'margin-bottom:11px'},
+        h('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:12px'},
+          h('div',{class:'ctitle',style:'color:'+wCol+';margin-bottom:0'},'Ziel-Tracker'),
+          h('span',{class:'pill',style:'font-size:12px;background:var(--bg2);color:'+(g.onTrack?'var(--green)':'var(--red)')},
+            g.onTrack?'Im Plan ✓':'Hinter Plan ⚠')
+        ),
+        // Two progress bars
+        h('div',{style:'margin-bottom:10px'},
+          h('div',{style:'display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px'},
+            h('span',{style:'color:var(--text2)'},'Gewicht'),
+            h('span',{style:'color:'+wCol+';font-weight:600'},g.weightPct+'%  (−'+g.lostKg.toFixed(1)+' von −'+g.totalLoss.toFixed(1)+' kg)')
+          ),
+          progBar(g.weightPct,wCol)
+        ),
+        h('div',{style:'margin-bottom:14px'},
+          h('div',{style:'display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px'},
+            h('span',{style:'color:var(--text2)'},'Zeit'),
+            h('span',{style:'color:var(--text2)'},g.timePct+'%  ('+g.daysGone+' von '+g.totalDays+' Tagen)')
+          ),
+          progBar(g.timePct,'var(--blue)')
+        ),
+        // Stats row
+        h('div',{class:'sg3'},
+          h('div',{class:'sc'},
+            h('div',{class:'sv',style:'color:var(--amber)'},g.weeksLeft),
+            h('div',{class:'sl'},'Wochen noch')
+          ),
+          h('div',{class:'sc'},
+            h('div',{class:'sv',style:'color:'+wCol},g.curKg.toFixed(1)+' kg'),
+            h('div',{class:'sl'},'Aktuell')
+          ),
+          h('div',{class:'sc'},
+            h('div',{class:'sv',style:'color:var(--green)'},g.targetKg.toFixed(1)+' kg'),
+            h('div',{class:'sl'},'Ziel')
+          ),
+        ),
+        h('div',{style:'margin-top:10px;padding-top:10px;border-top:.5px solid var(--border);display:flex;justify-content:space-between;font-size:12px;color:var(--text2)'},
+          h('span',{},'Ziel-Datum: '+g.endDate.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'})),
+          h('span',{style:'color:'+(parseFloat(g.weeklyActual)>=parseFloat(g.weeklyTarget)*0.85?'var(--green)':'var(--red)')},
+            'Ø '+g.weeklyActual+' kg/Wo  (Ziel: '+g.weeklyTarget+')')
+        )
       );
     })(),
     prof&&prof.age?(() => {
@@ -1111,6 +1198,8 @@ function showSetup(edit=false){
   const htI=Object.assign(document.createElement('input'),{type:'number',value:p.height||'',placeholder:'z.B. 178',className:'setup-inp'});
   const wI=Object.assign(document.createElement('input'),{type:'number',step:'0.1',value:p.weight||'',placeholder:'z.B. 88.5',className:'setup-inp'});
   const tgI=Object.assign(document.createElement('input'),{type:'number',step:'0.1',value:p.targetWeight||'',placeholder:'z.B. 83.0',className:'setup-inp'});
+  const goalWeeksI=Object.assign(document.createElement('input'),{type:'number',value:p.goalWeeks||'',placeholder:'z.B. 12',className:'setup-inp'});
+  const goalStartI=Object.assign(document.createElement('input'),{type:'date',value:p.goalStart||(new Date().toISOString().split('T')[0]),className:'setup-inp'});
   const ageI=Object.assign(document.createElement('input'),{type:'number',value:p.age||'',placeholder:'z.B. 42',className:'setup-inp'});
   const mB=h('div',{class:'gbtn'+(g==='m'?' on':''),onClick:()=>{g='m';mB.className='gbtn on';wB.className='gbtn';}},'💪',h('span',{},'Mann'));
   const wB=h('div',{class:'gbtn'+(g==='w'?' on':''),onClick:()=>{g='w';wB.className='gbtn on';mB.className='gbtn';}},'🌸',h('span',{},'Frau'));
@@ -1123,9 +1212,11 @@ function showSetup(edit=false){
     h('label',{class:'slabel'},'Körpergröße (cm)'),htI,
     h('label',{class:'slabel'},'Startgewicht (kg)'),wI,
     h('label',{class:'slabel'},'Zielgewicht (kg)'),tgI,
+    h('label',{class:'slabel'},'Ziel erreichen in (Wochen)'),goalWeeksI,
+    h('label',{class:'slabel'},'Startdatum'),goalStartI,
     h('label',{class:'slabel'},'Alter (Jahre)'),ageI,
     h('button',{class:'save-btn',onClick:()=>{
-      saveProf({name:nameI.value||'Du',gender:g||'m',height:parseFloat(htI.value)||175,weight:parseFloat(wI.value)||85,targetWeight:parseFloat(tgI.value)||null,age:parseInt(ageI.value)||null});
+      saveProf({name:nameI.value||'Du',gender:g||'m',height:parseFloat(htI.value)||175,weight:parseFloat(wI.value)||85,targetWeight:parseFloat(tgI.value)||null,goalWeeks:parseInt(goalWeeksI.value)||null,goalStart:goalStartI.value||new Date().toISOString().split('T')[0],age:parseInt(ageI.value)||null});
       scr.style.display='none';sec='dashboard';render();
     }},edit?'Speichern ✓':'Los geht\'s! 💪')
   );
@@ -1156,8 +1247,16 @@ function fmtDate(d){return d.toLocaleDateString('de-DE',{weekday:'long',day:'2-d
 function render(){
   const secs=isMon(cur)?[...SECS,WSEC]:SECS;
   const tod=toISO(new Date())===toISO(cur);
-  document.getElementById('hTitle').textContent=tod?'Heute – '+new Date().toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}):'Fitness Journal';
-  document.getElementById('hSub').textContent=fmtDate(cur)+(isMon(cur)?' · ⭐ Montagscheck':'');
+  // Build rich date header
+  const hc=document.getElementById('hdrCenter');
+  hc.innerHTML='';
+  const wdayName=cur.toLocaleDateString('de-DE',{weekday:'long'});
+  const dayNum=cur.getDate();
+  const monthYear=cur.toLocaleDateString('de-DE',{month:'long',year:'numeric'});
+  const mk=(cls,txt)=>{const d=document.createElement('div');d.className=cls;d.textContent=txt;return d;};
+  hc.append(mk('hdr-weekday',wdayName), mk('hdr-daynum',dayNum), mk('hdr-monthyear',monthYear));
+  if(tod) hc.append(mk('hdr-today-pill','HEUTE'));
+  else if(isMon(cur)) hc.append(mk('hdr-mon-pill','⭐ MONTAGSCHECK'));
 
   const st=document.getElementById('stabs');st.innerHTML='';
   for(const s of secs){
