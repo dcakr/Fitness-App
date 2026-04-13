@@ -225,12 +225,9 @@ input::placeholder{color:var(--text3)}
    CONSTANTS
 ════════════════════════════════ */
 const SP=[
-  {key:'laufen',label:'Laufen / Cardio',f1:'Distanz (km)',f2:'Pace (min/km)',c:'#0a84ff'},
-  {key:'kraft', label:'Krafttraining',  f1:'Übungen',    f2:'Sätze × Wdh.',c:'#ff453a'},
-  {key:'rad',   label:'Radfahren',      f1:'Distanz (km)',f2:'Höhenmeter',  c:'#30d158'},
-  {key:'yoga',  label:'Yoga / Dehnen',  f1:'Dauer (min)', f2:'Programm',   c:'#bf5af2'},
-  {key:'spa',   label:'Spazierengehen', f1:'Schritte',    f2:'Dauer (min)',c:'#8e8e93'},
-  {key:'golf',  label:'Golf',           f1:'Löcher/Range',f2:'Score',       c:'#ffd60a'},
+  {key:'laufen',label:'Laufen & Radfahren',f1:'Distanz (km)',f2:'Pace / Höhenmeter',c:'#0a84ff'},
+  {key:'kraft', label:'Krafttraining & Stretching',f1:'Übungen',f2:'Sätze × Wdh.',c:'#ff453a'},
+  {key:'golf',  label:'Golf & Spaziergang',f1:'Löcher / Schritte',f2:'Score / Dauer',c:'#30d158'},
 ];
 const FOOD=[
   {label:'Protein',c:'#ff453a',items:['Hähnchen / Pute','Lachs / Thunfisch','Eier (hart-/weichgekocht)','Magerquark','Griech. Joghurt 0–2%','Linsen / Kichererbsen']},
@@ -459,6 +456,71 @@ function getAllWeights(){
 }
 
 /* ════════════════════════════════
+   AUTO SCORING
+════════════════════════════════ */
+function calcScore(d){
+  if(!d)return null;
+  let pts=0,max=100;
+  // Fasten 25pts
+  if(d.fasten.done)pts+=25;
+  else if(d.fasten.firstMeal&&d.fasten.lastMeal)pts+=15;
+  else if(d.fasten.firstMeal||d.fasten.lastMeal)pts+=8;
+  // Wasser 20pts
+  const wc=d.wasser.filter(Boolean).length;
+  pts+=Math.round(wc/6*20);
+  // Sport 25pts
+  const sd=SP.filter(s=>d.sport[s.key]&&d.sport[s.key].done).length;
+  if(sd>=2)pts+=25;else if(sd===1)pts+=15;
+  const hard=SP.filter(s=>d.sport[s.key]&&d.sport[s.key].intens==='Hart').length;
+  const mid=SP.filter(s=>d.sport[s.key]&&d.sport[s.key].intens==='Mittel').length;
+  if(hard>0)pts=Math.min(100,pts+5);else if(mid>0)pts=Math.min(100,pts+2);
+  // Schlaf 20pts
+  const std=parseFloat(d.schlaf&&d.schlaf.std)||0;
+  if(std>=7&&std<=9)pts+=20;else if(std>=6)pts+=12;else if(std>0)pts+=6;
+  // Essen 10pts – based on selected food categories
+  const ecats=d.essen&&d.essen.cats?d.essen.cats:[];
+  const goodKeys=['protein','gemuese','fette','snacks'];
+  const hasBadFood=ecats.includes('saboteur');
+  const goodSel=ecats.filter(k=>goodKeys.includes(k)).length;
+  if(!hasBadFood) pts+=Math.round(goodSel/goodKeys.length*10);
+  return{pts,max,pct:Math.min(100,Math.round(pts/max*100))};
+}
+function scoreColor(pct){return pct>=80?'var(--green)':pct>=60?'var(--amber)':pct>=40?'#ff9f0a':'var(--red)';}
+function scoreLabel(pct){
+  if(pct>=90)return'Perfekter Tag 🔥';if(pct>=80)return'Sehr gut 💪';
+  if(pct>=65)return'Gut 👍';if(pct>=50)return'Okay 😐';
+  if(pct>=35)return'Ausbaufähig 😅';return'Morgen besser! 💡';
+}
+function scoreBreakdown(d){
+  const wc=d.wasser.filter(Boolean).length;
+  const sd=SP.filter(s=>d.sport[s.key]&&d.sport[s.key].done).length;
+  const std=parseFloat(d.schlaf&&d.schlaf.std)||0;
+  const meals=['frueh','mittag','abend','snack'].filter(k=>d.essen&&d.essen[k]&&d.essen[k].trim().length>2).length;
+  return[
+    {l:'Fasten (25 Pkt)',  v:d.fasten.done?'✓ Eingehalten':d.fasten.firstMeal||d.fasten.lastMeal?'Teilweise':'–', ok:d.fasten.done, partial:d.fasten.firstMeal||d.fasten.lastMeal},
+    {l:'Wasser (20 Pkt)',  v:(wc*.5).toFixed(1)+'L  ('+wc+'/6 Flaschen)', ok:wc>=6, partial:wc>=3},
+    {l:'Sport (25 Pkt)',   v:sd>0?sd+' Einheit'+(sd>1?'en':'')+' erledigt':'Kein Sport', ok:sd>=2, partial:sd===1},
+    {l:'Schlaf (20 Pkt)',  v:std?std+'h':' Nicht eingetragen', ok:std>=7&&std<=9, partial:std>=6},
+    {l:'Essen (10 Pkt)', v:(()=>{
+      const ec=d.essen&&d.essen.cats?d.essen.cats:[];
+      const gk=['protein','gemuese','fette','snacks'];
+      const hasBad=ec.includes('saboteur');
+      const gs=ec.filter(k=>gk.includes(k)).length;
+      return hasBad?'Saboteure ❌ → 0 Pkt':gs+' gesunde Kategorien';
+    })(), ok:(()=>{const ec=d.essen&&d.essen.cats?d.essen.cats:[];return !ec.includes('saboteur')&&ec.filter(k=>['protein','gemuese','fette','snacks'].includes(k)).length>=3;})(), partial:(()=>{const ec=d.essen&&d.essen.cats?d.essen.cats:[];return !ec.includes('saboteur')&&ec.filter(k=>['protein','gemuese','fette','snacks'].includes(k)).length>=2;})()},
+  ];
+}
+function getScoreHistory(){
+  const res=[];
+  for(let i=27;i>=0;i--){
+    const d=new Date(cur);d.setDate(d.getDate()-i);
+    const data=ls.g('fit:d:'+toISO(d));
+    if(data){const sc=calcScore(data);if(sc)res.push({date:new Date(d),pct:sc.pct});}
+  }
+  return res;
+}
+
+/* ════════════════════════════════
    RENDER SECTIONS
 ════════════════════════════════ */
 function rDashboard(){
@@ -478,6 +540,16 @@ function rDashboard(){
       )
     ),
     card(null,null,h('div',{class:'streak-big'},h('div',{class:'snum'},streak),h('div',{class:'slbl2'},'Tage Fasten in Folge 🔥'))),
+    (()=>{const sc=calcScore(day);const pct=sc?sc.pct:0;const col=scoreColor(pct);
+      return h('div',{class:'card',style:'margin-bottom:11px'},
+        h('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px'},
+          h('div',{class:'ctitle',style:'color:'+col+';margin-bottom:0'},'Tages-Score'),
+          h('span',{style:'font-size:24px;font-weight:700;color:'+col},pct+'%')
+        ),
+        progBar(pct,col),
+        h('div',{style:'font-size:12px;color:'+col+';text-align:right;margin-top:5px'},scoreLabel(pct))
+      );
+    })(),
     h('div',{class:'sg3',style:'margin-bottom:11px'},
       h('div',{class:'sc'},h('div',{class:'sv',style:`color:${day.fasten.done?'var(--green)':'var(--text2)'}`},day.fasten.done?'✓':'–'),h('div',{class:'sl'},'Fasten')),
       h('div',{class:'sc'},h('div',{class:'sv',style:`color:${wc===6?'var(--blue)':'var(--text2)'}`},(wc*.5).toFixed(1)+'L'),h('div',{class:'sl'},'Wasser')),
@@ -565,28 +637,24 @@ function rSport(){
       const s=day.sport[sp.key];
       return h('div',{class:'spcard'},
         h('div',{class:'sphdr'},
-          h('div',{class:'spbar',style:`background:${sp.c}`}),
+          h('div',{class:'spbar',style:'background:'+sp.c}),
           h('span',{class:'spname'},sp.label),
-          h('div',{class:'tog'+(s.done?' on':''),onClick:()=>upDay(`sport.${sp.key}.done`,!s.done)})
+          h('div',{class:'tog'+(s.done?' on':''),onClick:()=>upDay('sport.'+sp.key+'.done',!s.done)})
         ),
         h('div',{class:'fl',style:'margin-bottom:6px'},'Dauer (min)'),
         h('div',{class:'timebtn-row'},
           ...[30,60,90,120].map(t=>
-            h('div',{
-              class:'tbtn'+(s.dauer===String(t)?' on':''),
-              onClick:()=>upDay(`sport.${sp.key}.dauer`,s.dauer===String(t)?'':String(t))
-            },t+'\'')
+            h('div',{class:'tbtn'+(s.dauer===String(t)?' on':''),
+              onClick:()=>upDay('sport.'+sp.key+'.dauer',s.dauer===String(t)?'':String(t))
+            },t+"'")
           )
         ),
-        h('div',{class:'ig2',style:'margin-bottom:2px'},
-          field(sp.f1, inp(s.f1, v=>upDayQ(`sport.${sp.key}.f1`,v),'–','text')),
-          field(sp.f2, inp(s.f2, v=>upDayQ(`sport.${sp.key}.f2`,v),'–','text')),
-        ),
+        h('div',{class:'fl',style:'margin-bottom:6px;margin-top:10px'},'Intensität'),
         h('div',{class:'ibtns'},
           ...['Locker','Mittel','Hart'].map(lv=>{
             const b=h('button',{class:'ibtn'},lv);
             if(s.intens===lv){b.style.background=sp.c+'33';b.style.borderColor=sp.c;b.style.color=sp.c;}
-            b.addEventListener('click',()=>upDay(`sport.${sp.key}.intens`,lv));
+            b.addEventListener('click',()=>upDay('sport.'+sp.key+'.intens',lv));
             return b;
           })
         )
@@ -630,6 +698,67 @@ function rEssen(){
   );
 }
 
+function rEssen(){
+  const e=day.essen||{cats:[]};
+  const cats=e.cats||[];
+
+  const ECATS=[
+    {key:'protein',  label:'Protein',       color:'#ff453a', items:['Hähnchen / Pute','Lachs / Thunfisch','Eier','Magerquark','Griech. Joghurt 0–2%','Linsen / Kichererbsen']},
+    {key:'gemuese',  label:'Gemüse',         color:'#30d158', items:['Brokkoli / Blumenkohl','Zucchini / Gurke','Spinat / Rucola','Tomaten / Paprika']},
+    {key:'fette',    label:'Gesunde Fette',  color:'#ffb340', items:['Avocado','Mandeln / Walnüsse','Olivenöl','Chiasamen / Leinsamen']},
+    {key:'snacks',   label:'Snacks & Extras',color:'#5ac8fa', items:['Beeren','Apfel / Birne','Dunkle Schokolade 85%+','Kräutertee']},
+    {key:'saboteur', label:'Saboteure ❌',   color:'#ff453a', bad:true, items:['Weißbrot / Pasta','Zucker / Süßes','Alkohol','Fruchtsäfte','Fertiggerichte','Chips / Fast Food']},
+  ];
+
+  const goodCats=ECATS.filter(c=>!c.bad);
+  const selectedGood=cats.filter(k=>goodCats.find(c=>c.key===k)).length;
+  const hasBad=cats.includes('saboteur');
+  const pts=hasBad?0:Math.round(selectedGood/goodCats.length*10);
+
+  function toggle(key){
+    const cur=day.essen&&day.essen.cats?[...day.essen.cats]:[];
+    const idx=cur.indexOf(key);
+    if(idx>=0) cur.splice(idx,1); else cur.push(key);
+    upDay('essen.cats', cur);
+  }
+
+  return h('div',{},
+    // Score preview
+    h('div',{class:'card',style:'margin-bottom:11px'},
+      h('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:8px'},
+        h('div',{class:'ctitle',style:'color:var(--green);margin-bottom:0'},'Essen heute'),
+        h('div',{style:'font-size:22px;font-weight:700;color:'+(pts>=8?'var(--green)':pts>=5?'var(--amber)':'var(--red)')},pts+'/10 Pkt')
+      ),
+      progBar(pts/10*100, pts>=8?'var(--green)':pts>=5?'var(--amber)':'var(--red)'),
+      hasBad?h('div',{style:'font-size:11px;color:var(--red);margin-top:6px'},'❌ Saboteure angeklickt → 0 Punkte'):
+      h('div',{style:'font-size:11px;color:var(--text2);margin-top:6px'},selectedGood+' von '+goodCats.length+' gesunden Kategorien gegessen')
+    ),
+
+    // Category cards
+    ...ECATS.map(cat=>{
+      const sel=cats.includes(cat.key);
+      return h('div',{
+        class:'card',
+        style:'margin-bottom:10px;border:1.5px solid '+(sel?(cat.bad?'var(--red)':cat.color):'var(--border)')+';cursor:pointer;transition:border .15s',
+        onClick:()=>toggle(cat.key)
+      },
+        h('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:'+(sel?'10px':'0')},
+          h('div',{style:'display:flex;align-items:center;gap:10px'},
+            h('div',{style:'width:10px;height:10px;border-radius:50%;background:'+cat.color+';flex-shrink:0'}),
+            h('div',{style:'font-size:15px;font-weight:500'},cat.label)
+          ),
+          h('div',{style:'font-size:20px'},sel?(cat.bad?'❌':'✅'):'○')
+        ),
+        // Show items only when selected
+        sel?h('div',{style:'display:flex;flex-wrap:wrap;gap:5px;padding-top:2px'},
+          ...cat.items.map(item=>h('span',{class:'tag',style:'font-size:11px;background:'+cat.color+'22;color:'+cat.color},item))
+        ):null
+      );
+    }),
+    h('div',{class:'se'})
+  );
+}
+
 function rGuide(){
   return h('div',{},
     ...FOOD.map(g=>h('div',{class:'fgroup'},h('div',{class:'fgtit',style:`color:${g.c}`},g.label),...g.items.map(item=>h('div',{class:'fitem'},h('div',{class:'fdot',style:`background:${g.c}`}),h('span',{},item))))),
@@ -639,14 +768,74 @@ function rGuide(){
   );
 }
 
+function calcSleep(ein, auf){
+  if(!ein||!auf) return null;
+  const parse=t=>{const[h,m]=(t+'').split(':').map(Number);return isNaN(h)||isNaN(m)?null:h*60+m;};
+  const eMin=parse(ein), aMin=parse(auf);
+  if(eMin===null||aMin===null) return null;
+  let diff = aMin - eMin;
+  if(diff <= 0) diff += 24*60; // schlafen über Mitternacht
+  return (diff/60).toFixed(1);
+}
+
 function rSchlaf(){
   const s=day.schlaf;
+  const autoStd=calcSleep(s.ein,s.auf);
+
+  function onTimeChange(field,val){
+    upDayQ('schlaf.'+field, val);
+    // recalc after short delay so both fields are saved
+    setTimeout(()=>{
+      const fresh=day.schlaf;
+      const calc=calcSleep(fresh.ein,fresh.auf);
+      if(calc){ upDayQ('schlaf.std', calc); reRenderStunden(calc); }
+    },100);
+  }
+
+  function reRenderStunden(val){
+    const el=document.getElementById('schlaf-std');
+    if(el) el.textContent=val+'h';
+  }
+
   return h('div',{},
     card('Schlaf','var(--purple)',
-      h('div',{class:'ig3',style:'margin-bottom:16px'},
-        field('Eingeschlafen', inp(s.ein||'',v=>upDayQ('schlaf.ein',v),'22:30')),
-        field('Aufgewacht',    inp(s.auf||'',v=>upDayQ('schlaf.auf',v),'06:30')),
-        field('Stunden',       inp(s.std||'',v=>upDayQ('schlaf.std',v),'8')),
+      // Ein / Auf inputs
+      h('div',{class:'ig2',style:'margin-bottom:14px'},
+        h('div',{},
+          h('div',{class:'fl',style:'margin-bottom:6px'},'Eingeschlafen'),
+          (() => {
+            const el=document.createElement('input');
+            el.type='time'; el.value=s.ein||''; el.className='';
+            el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none;appearance:none';
+            el.addEventListener('change',e=>onTimeChange('ein',e.target.value));
+            return el;
+          })()
+        ),
+        h('div',{},
+          h('div',{class:'fl',style:'margin-bottom:6px'},'Aufgewacht'),
+          (() => {
+            const el=document.createElement('input');
+            el.type='time'; el.value=s.auf||''; el.className='';
+            el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none;appearance:none';
+            el.addEventListener('change',e=>onTimeChange('auf',e.target.value));
+            return el;
+          })()
+        ),
+      ),
+      // Auto-calculated hours
+      h('div',{style:'background:var(--bg2);border-radius:12px;padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between'},
+        h('div',{},
+          h('div',{class:'fl'},'Schlafdauer'),
+          h('div',{id:'schlaf-std',style:'font-size:36px;font-weight:300;margin-top:2px;color:'+(
+            autoStd?(parseFloat(autoStd)>=7&&parseFloat(autoStd)<=9?'var(--green)':parseFloat(autoStd)>=6?'var(--amber)':'var(--red)'):'var(--text2)'
+          )},autoStd?(autoStd+'h'):'–'),
+        ),
+        autoStd?h('div',{style:'text-align:right'},
+          h('div',{class:'pill',style:'font-size:13px;background:var(--bg3);color:'+(
+            parseFloat(autoStd)>=7&&parseFloat(autoStd)<=9?'var(--green)':parseFloat(autoStd)>=6?'var(--amber)':'var(--red)'
+          )},parseFloat(autoStd)>=7&&parseFloat(autoStd)<=9?'Optimal 😴':parseFloat(autoStd)>=6?'Ok 😐':'Zu wenig 😓'),
+          h('div',{style:'font-size:11px;color:var(--text2);margin-top:4px'},'Ziel: 7–9h')
+        ):h('div',{style:'font-size:12px;color:var(--text3);text-align:right'},'Zeiten eintragen')
       ),
       h('div',{class:'fl',style:'margin-bottom:8px'},'Schlafqualität'),
       stars(s.qual,v=>upDay('schlaf.qual',v))
@@ -656,20 +845,32 @@ function rSchlaf(){
 }
 
 function rFazit(){
-  const f=day.fazit,wc=day.wasser.filter(Boolean).length,sd=SP.filter(s=>day.sport[s.key].done).length;
+  const sc=calcScore(day);
+  const pct=sc?sc.pct:0;
+  const col=scoreColor(pct);
+  const breakdown=scoreBreakdown(day);
+  const f=day.fazit;
   return h('div',{},
-    card('Tages-Score','var(--amber)',
-      h('div',{class:'srow'},h('span',{style:'font-size:15px'},'Energie'), stars(f.energie,v=>upDay('fazit.energie',v))),
-      h('div',{class:'srow'},h('span',{style:'font-size:15px'},'Stimmung'),stars(f.stimmung,v=>upDay('fazit.stimmung',v))),
+    card(null,null,
+      h('div',{style:'text-align:center;padding:10px 0 4px'},
+        h('div',{style:'font-size:68px;font-weight:700;color:'+col+';line-height:1'},pct),
+        h('div',{style:'font-size:13px;color:'+col+';font-weight:600;margin-top:5px'},scoreLabel(pct)),
+        h('div',{style:'font-size:11px;color:var(--text2);margin-top:2px'},'Punkte von 100 – automatisch berechnet'),
+      ),
+      progBar(pct,col),
     ),
-    card('Reflexion','var(--text2)',
-      h('div',{style:'margin-bottom:12px'}, field('Was war gut?',     inp(f.gut,   v=>upDayQ('fazit.gut',v),   'Heute lief gut...'))),
-      field('Morgen besser:',               inp(f.besser,v=>upDayQ('fazit.besser',v),'Ich möchte morgen...'))
+    card('Auswertung','var(--text2)',
+      ...breakdown.map(b=>h('div',{class:'srow'},
+        h('div',{style:'flex:1'},
+          h('div',{style:'font-size:14px'},b.l),
+          h('div',{style:'font-size:11px;color:var(--text2);margin-top:1px'},b.v),
+        ),
+        h('div',{style:'font-size:20px;flex-shrink:0'},b.ok?'✅':b.partial?'🟡':'❌')
+      ))
     ),
-    h('div',{class:'sg3'},
-      h('div',{class:'sc'},h('div',{class:'sv',style:`color:${day.fasten.done?'var(--green)':'var(--text2)'}`},day.fasten.done?'✓':'–'),h('div',{class:'sl'},'Fasten')),
-      h('div',{class:'sc'},h('div',{class:'sv',style:`color:${wc===6?'var(--blue)':'var(--text2)'}`},(wc*.5).toFixed(1)+'L'),h('div',{class:'sl'},'Wasser')),
-      h('div',{class:'sc'},h('div',{class:'sv',style:`color:${sd>0?'var(--green)':'var(--text2)'}`},sd+'/'+SP.length),h('div',{class:'sl'},'Sport')),
+    card('Notizen (optional)','var(--text2)',
+      h('div',{style:'margin-bottom:12px'},field('Highlight des Tages:',inp(f.gut,v=>upDayQ('fazit.gut',v),'Was lief gut?'))),
+      field('Morgen besser:',inp(f.besser,v=>upDayQ('fazit.besser',v),'Was möchte ich morgen besser machen?'))
     ),
     h('div',{class:'se'})
   );
@@ -690,11 +891,14 @@ function rWoche(){
             h('div',{class:'wkdn'},dn[i]),
             h('div',{class:'wkdt'},d.date.getDate()),
             future?h('div',{class:'wkdots'},h('div',{class:'wkdot',style:'background:var(--bg3)'}),h('div',{class:'wkdot',style:'background:var(--bg3)'}),h('div',{class:'wkdot',style:'background:var(--bg3)'})):
-            h('div',{class:'wkdots'},
-              h('div',{class:'wkdot',style:`background:${fast?'var(--green)':'var(--bg3)'}`}),
-              h('div',{class:'wkdot',style:`background:${water>=6?'var(--blue)':water>0?'#1d4e7a':'var(--bg3)'}`}),
-              h('div',{class:'wkdot',style:`background:${sport>0?'var(--amber)':'var(--bg3)'}`}),
-            )
+            (()=>{const sc2=data?calcScore(data):null;const spct=sc2?sc2.pct:0;
+              return h('div',{class:'wkdots'},
+                h('div',{class:'wkdot',style:'background:'+(fast?'var(--green)':'var(--bg3)')}),
+                h('div',{class:'wkdot',style:'background:'+(water>=6?'var(--blue)':water>0?'#1d4e7a':'var(--bg3)')}),
+                h('div',{class:'wkdot',style:'background:'+(sport>0?'var(--amber)':'var(--bg3)')}),
+                sc2?h('div',{style:'font-size:9px;font-weight:700;margin-top:1px;color:'+scoreColor(spct)},spct+'%'):null
+              );
+            })()
           );
         })
       ),
@@ -717,6 +921,7 @@ function rWoche(){
 }
 
 function rKurve(){
+  const scoreHist=getScoreHistory();
   const weights=getAllWeights(),prof=getProf();
   const wrap=h('div',{});
   if(weights.length<2){
@@ -763,6 +968,40 @@ function rKurve(){
       h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--text2)'},startW+' kg'),h('div',{class:'sl'},'Startgewicht')),
       h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--green)'},'-'+lost+' kg'),h('div',{class:'sl'},'Abgenommen')),
     ));
+  }
+  // Score chart
+  if(scoreHist.length>=2){
+    const sw=h('div',{class:'chart-wrap'});
+    sw.append(h('div',{class:'ctitle',style:'color:var(--purple)'},'Tages-Score Verlauf (%)'));
+    const cv2=document.createElement('canvas');cv2.height=160;sw.append(cv2);wrap.append(sw);
+    const avg=Math.round(scoreHist.reduce((a,s)=>a+s.pct,0)/scoreHist.length);
+    wrap.append(h('div',{class:'sc',style:'margin-bottom:11px;text-align:center'},
+      h('div',{class:'sv',style:'color:var(--purple)'},avg+'%'),h('div',{class:'sl'},'Ø Score letzte '+scoreHist.length+' Tage')
+    ));
+    setTimeout(()=>{
+      const W2=cv2.offsetWidth,H2=160;cv2.width=W2*2;cv2.height=H2*2;cv2.style.width=W2+'px';cv2.style.height=H2+'px';
+      const c2=cv2.getContext('2d');c2.scale(2,2);
+      const p2={t:14,r:14,b:26,l:34},cw2=W2-p2.l-p2.r,ch2=H2-p2.t-p2.b;
+      const xSt2=cw2/(scoreHist.length-1||1);
+      c2.strokeStyle='rgba(255,255,255,0.06)';c2.lineWidth=0.5;
+      [0,25,50,75,100].forEach(v=>{
+        const y=p2.t+ch2-(v/100)*ch2;
+        c2.beginPath();c2.moveTo(p2.l,y);c2.lineTo(p2.l+cw2,y);c2.stroke();
+        c2.fillStyle='rgba(255,255,255,.3)';c2.font='9px -apple-system';c2.textAlign='right';c2.fillText(v+'%',p2.l-3,y+3);
+      });
+      c2.fillStyle='rgba(255,255,255,.3)';c2.font='9px -apple-system';c2.textAlign='center';
+      scoreHist.forEach((s,i)=>{if(i===0||i===scoreHist.length-1||(i+1)%7===0)c2.fillText(s.date.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}),p2.l+i*xSt2,H2-p2.b+12);});
+      const g2=c2.createLinearGradient(0,p2.t,0,p2.t+ch2);g2.addColorStop(0,'rgba(191,90,242,.3)');g2.addColorStop(1,'rgba(191,90,242,0)');
+      c2.beginPath();scoreHist.forEach((s,i)=>{const x=p2.l+i*xSt2,y=p2.t+ch2-(s.pct/100)*ch2;i===0?c2.moveTo(x,y):c2.lineTo(x,y);});
+      c2.lineTo(p2.l+(scoreHist.length-1)*xSt2,p2.t+ch2);c2.lineTo(p2.l,p2.t+ch2);c2.closePath();c2.fillStyle=g2;c2.fill();
+      c2.strokeStyle='#bf5af2';c2.lineWidth=2;c2.lineJoin='round';c2.beginPath();
+      scoreHist.forEach((s,i)=>{const x=p2.l+i*xSt2,y=p2.t+ch2-(s.pct/100)*ch2;i===0?c2.moveTo(x,y):c2.lineTo(x,y);});c2.stroke();
+      scoreHist.forEach((s,i)=>{
+        const x=p2.l+i*xSt2,y=p2.t+ch2-(s.pct/100)*ch2;
+        c2.beginPath();c2.arc(x,y,3.5,0,Math.PI*2);c2.fillStyle=scoreColor(s.pct);c2.fill();
+        if(scoreHist.length<=14){c2.fillStyle='#fff';c2.font='bold 9px -apple-system';c2.textAlign='center';c2.fillText(s.pct+'%',x,y-8);}
+      });
+    },80);
   }
   wrap.append(h('div',{class:'se'}));
   return wrap;
@@ -901,16 +1140,16 @@ const SECS=[
   {key:'sport',    label:'Sport',  icon:'🏃'},
   {key:'wasser',   label:'Wasser', icon:'💧'},
   {key:'essen',    label:'Essen',  icon:'🥗'},
-  {key:'guide',    label:'Guide',  icon:'📋'},
   {key:'schlaf',   label:'Schlaf', icon:'🌙'},
   {key:'fazit',    label:'Fazit',  icon:'✅'},
   {key:'woche',    label:'Woche',  icon:'📅'},
   {key:'kurve',    label:'Kurve',  icon:'📊'},
   {key:'profil',   label:'Profil', icon:'👤'},
+  {key:'guide',    label:'Guide',  icon:'📋'},
 ];
 const WSEC={key:'gewicht',label:'Gewicht',icon:'⚖'};
-const BOTTOM=['dashboard','fasten','sport','wasser','fazit'];
-const MAPS={dashboard:rDashboard,fasten:rFasten,sport:rSport,wasser:rWasser,essen:rEssen,guide:rGuide,schlaf:rSchlaf,fazit:rFazit,woche:rWoche,kurve:rKurve,gewicht:rGewicht,profil:rProfil};
+const BOTTOM=['dashboard','fasten','sport','wasser','essen'];
+const MAPS={dashboard:rDashboard,fasten:rFasten,sport:rSport,wasser:rWasser,essen:rEssen,schlaf:rSchlaf,fazit:rFazit,woche:rWoche,kurve:rKurve,gewicht:rGewicht,profil:rProfil,guide:rGuide};
 
 function fmtDate(d){return d.toLocaleDateString('de-DE',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'});}
 
