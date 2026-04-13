@@ -1136,19 +1136,19 @@ function showSetup(edit=false){
 ════════════════════════════════ */
 const SECS=[
   {key:'dashboard',label:'Home',   icon:'🏠'},
+  {key:'fazit',    label:'Fazit',  icon:'✅'},
   {key:'fasten',   label:'Fasten', icon:'⏱'},
   {key:'sport',    label:'Sport',  icon:'🏃'},
   {key:'wasser',   label:'Wasser', icon:'💧'},
   {key:'essen',    label:'Essen',  icon:'🥗'},
   {key:'schlaf',   label:'Schlaf', icon:'🌙'},
-  {key:'fazit',    label:'Fazit',  icon:'✅'},
   {key:'woche',    label:'Woche',  icon:'📅'},
   {key:'kurve',    label:'Kurve',  icon:'📊'},
   {key:'profil',   label:'Profil', icon:'👤'},
   {key:'guide',    label:'Guide',  icon:'📋'},
 ];
 const WSEC={key:'gewicht',label:'Gewicht',icon:'⚖'};
-const BOTTOM=['dashboard','fasten','sport','wasser','essen'];
+const BOTTOM=['dashboard','fazit','fasten','sport','wasser'];
 const MAPS={dashboard:rDashboard,fasten:rFasten,sport:rSport,wasser:rWasser,essen:rEssen,schlaf:rSchlaf,fazit:rFazit,woche:rWoche,kurve:rKurve,gewicht:rGewicht,profil:rProfil,guide:rGuide};
 
 function fmtDate(d){return d.toLocaleDateString('de-DE',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'});}
