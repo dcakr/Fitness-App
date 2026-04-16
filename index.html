@@ -716,20 +716,18 @@ function rDashboard(){
   );
 }
 
-function parseMins(t){if(!t)return null;const[h,m]=(t+'').split(':').map(Number);return isNaN(h)||isNaN(m)?null:h*60+m;}
-function minsToTime(m){const hh=Math.floor(((m%1440)+1440)%1440/60),mm=((m%1440)+1440)%1440%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
-function calcFastHours(firstToday, lastYesterday){
-  // Real fast = from last meal yesterday to first meal today
-  const fMin=parseMins(firstToday), lMin=parseMins(lastYesterday);
-  if(!fMin||!lMin)return null;
-  let diff=fMin+(1440-lMin); // minutes from lastYesterday to firstToday (next day)
-  if(diff<=0)diff+=1440;
+function parseMins(t){if(!t)return null;const p=(t+'').split(':');const hh=parseInt(p[0]),mm=parseInt(p[1]||0);if(isNaN(hh)||isNaN(mm))return null;return hh*60+mm;}
+function minsToTime(m){const mm=((m%1440)+1440)%1440;return String(Math.floor(mm/60)).padStart(2,'0')+':'+String(mm%60).padStart(2,'0');}
+function calcFastHours(firstToday,lastStart){
+  const a=parseMins(firstToday),b=parseMins(lastStart);
+  if(a===null||b===null)return null;
+  let diff=a-b; if(diff<0)diff+=1440; // over midnight
   return (diff/60).toFixed(1);
 }
 function getYesterdayLastMeal(){
   const prev=new Date(cur);prev.setDate(prev.getDate()-1);
   const data=ls.g('fit:d:'+toISO(prev));
-  return data&&data.fasten&&data.fasten.lastMealTime?data.fasten.lastMealTime:null;
+  return (data&&data.fasten&&data.fasten.lastMealTime)||null;
 }
 
 function rFasten(){
@@ -737,37 +735,37 @@ function rFasten(){
   const prof=getProf()||{};
   const model=prof.fastModel||'16';
   const targetH=parseInt(model);
+  const eatWindowH=24-targetH;
   const fastEnd=prof.fastEnd||'18:30';
   const fastEndMins=parseMins(fastEnd);
-  const eatWindowH=24-targetH;
-  const firstMealMins=(fastEndMins-(eatWindowH*60)+1440)%1440;
-  const firstMealTarget=minsToTime(firstMealMins);
-
-  const yesterdayLast=getYesterdayLastMeal();
-  const effectiveYesterday=yesterdayLast||f.manualYesterdayLast||null;
-  const actualHours=effectiveYesterday?calcFastHours(f.firstMealTime,effectiveYesterday):null;
-  const success=actualHours&&parseFloat(actualHours)>=targetH;
-  const partial=actualHours&&parseFloat(actualHours)>=(targetH-1);
-  const col=!actualHours?'var(--text2)':success?'var(--green)':partial?'var(--amber)':'var(--red)';
-
-  // timeline
-  const eatStartPct=firstMealMins/1440*100;
+  const firstMealTarget=minsToTime((fastEndMins-(eatWindowH*60)+1440)%1440);
+  const eatStartPct=(parseMins(firstMealTarget)||0)/1440*100;
   const eatWidthPct=eatWindowH/24*100;
 
-  function onTimeChange(field,val){
-    setPath(day,'fasten.'+field,val);
-    ls.s(dk(),day);
-    flashSaved();
-    render(); // safe to re-render: time pickers close on their own
+  // yesterday last meal: from storage or manually entered
+  const autoYesterday=getYesterdayLastMeal();
+  const startTime=f.startFast||autoYesterday||'';
+  const endTime=f.firstMealTime||'';
+  const hours=calcFastHours(endTime,startTime);
+  const h=hours?parseFloat(hours):null;
+  const success=h!==null&&h>=targetH;
+  const partial=h!==null&&h>=(targetH-1);
+  const col=h===null?'var(--text2)':success?'var(--green)':partial?'var(--amber)':'var(--red)';
+
+  function mkTime(val,onchange){
+    const el=document.createElement('input');
+    el.type='time';el.value=val||'';
+    el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none;appearance:none';
+    el.addEventListener('change',e=>{onchange(e.target.value);});
+    return el;
   }
 
   return h('div',{},
-    // Model + timeline card
     card(null,null,
       h('div',{style:'display:flex;gap:8px;margin-bottom:14px'},
         h('span',{class:'pill',style:'background:rgba(48,209,88,.2);color:var(--green)'},targetH+'h Fasten'),
         h('span',{class:'pill',style:'background:rgba(10,132,255,.15);color:var(--blue)'},eatWindowH+'h Essen'),
-        h('span',{class:'pill',style:'background:var(--bg2);color:var(--text2)'},'Ziel: bis '+fastEnd)
+        h('span',{class:'pill',style:'background:var(--bg2);color:var(--text2)'},'Ziel bis '+fastEnd)
       ),
       h('div',{class:'tlbar'},
         h('div',{class:'tleat',style:'left:'+eatStartPct+'%;width:'+eatWidthPct+'%'}),
@@ -776,71 +774,59 @@ function rFasten(){
       h('div',{class:'tlticks'},h('span',{},'0:00'),h('span',{},firstMealTarget),h('span',{},fastEnd),h('span',{},'24:00'))
     ),
 
-    // Time pickers
-    card('Heute eintragen','var(--green)',
-      // Yesterday's last meal row
-      h('div',{style:'margin-bottom:12px'},
-        h('div',{class:'fl',style:'margin-bottom:6px'},'Letzte Mahlzeit gestern'),
-        yesterdayLast
-          // auto-loaded from yesterday → readonly display
-          ? h('div',{style:'background:var(--bg2);border-radius:10px;padding:11px 13px;display:flex;justify-content:space-between;align-items:center'},
-              h('div',{style:'font-size:17px;font-weight:500'},yesterdayLast),
-              h('div',{style:'font-size:11px;color:var(--green)'},'Automatisch ✓')
-            )
-          // not yet in storage → manual input
-          : (()=>{
-              const el=document.createElement('input');el.type='time';
-              el.value=f.manualYesterdayLast||fastEnd;
-              el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none';
-              el.placeholder=fastEnd;
-              el.addEventListener('change',e=>{
-                setPath(day,'fasten.manualYesterdayLast',e.target.value);
-                ls.s(dk(),day);
-                flashSaved();
-                render();
-              });
-              return el;
-            })()
-      ),
-      // Today: first + last meal
+    card('Fastenzeiten eintragen','var(--green)',
       h('div',{class:'ig2',style:'margin-bottom:14px'},
         h('div',{},
-          h('div',{class:'fl',style:'margin-bottom:6px'},'Erste Mahlzeit heute'),
-          (()=>{
-            const el=document.createElement('input');el.type='time';
-            el.value=f.firstMealTime||'';
-            el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none';
-            el.addEventListener('change',e=>onTimeChange('firstMealTime',e.target.value));
-            return el;
-          })()
+          h('div',{class:'fl',style:'margin-bottom:6px'},
+            autoYesterday?'Letzte Mahlzeit gestern (auto)':'Letzte Mahlzeit gestern'
+          ),
+          autoYesterday
+            ? h('div',{style:'background:var(--bg2);border-radius:10px;padding:11px 13px;display:flex;justify-content:space-between;align-items:center'},
+                h('span',{style:'font-size:17px;font-weight:500'},autoYesterday),
+                h('span',{style:'font-size:11px;color:var(--green)'},'Auto ✓')
+              )
+            : mkTime(startTime, v=>{
+                setPath(day,'fasten.startFast',v);
+                ls.s(dk(),day);flashSaved();render();
+              })
         ),
         h('div',{},
-          h('div',{class:'fl',style:'margin-bottom:6px'},'Letzte Mahlzeit heute'),
-          (()=>{
-            const el=document.createElement('input');el.type='time';
-            el.value=f.lastMealTime||fastEnd;
-            el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none';
-            el.addEventListener('change',e=>onTimeChange('lastMealTime',e.target.value));
-            return el;
-          })()
+          h('div',{class:'fl',style:'margin-bottom:6px'},'Erste Mahlzeit heute'),
+          mkTime(endTime, v=>{
+            setPath(day,'fasten.firstMealTime',v);
+            ls.s(dk(),day);flashSaved();render();
+          })
         )
       ),
-      // Result
+      // Result box — always visible
       h('div',{style:'background:var(--bg2);border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between'},
         h('div',{},
           h('div',{class:'fl'},'Gefastete Stunden'),
-          h('div',{id:'fast-hours',style:'font-size:36px;font-weight:300;margin-top:2px;color:'+(actualHours?(success?'var(--green)':partial?'var(--amber)':'var(--red)'):'var(--text2)')},
-            actualHours?actualHours+'h':'–')
+          h('div',{style:'font-size:40px;font-weight:300;margin-top:2px;color:'+col},
+            h!==null?hours+'h':'–')
         ),
-        actualHours?h('div',{style:'text-align:right'},
-          h('div',{class:'pill',style:'background:var(--bg3);color:'+col},success?'Ziel ✓ '+targetH+'h':partial?'Fast geschafft 🟡':'Ziel verfehlt ❌'),
-          h('div',{style:'font-size:11px;color:var(--text2);margin-top:4px'},'Ziel: ≥'+targetH+'h')
-        ):h('div',{style:'font-size:12px;color:var(--text3)'},'Zeiten eintragen')
+        h!==null
+          ? h('div',{style:'text-align:right'},
+              h('div',{class:'pill',style:'background:var(--bg3);color:'+col},
+                success?'Ziel ✓ '+targetH+'h':partial?'Fast ✓ 🟡':'Ziel verfehlt ❌'),
+              h('div',{style:'font-size:11px;color:var(--text2);margin-top:4px'},'Ziel: ≥'+targetH+'h')
+            )
+          : h('div',{style:'font-size:12px;color:var(--text3);text-align:right'},
+              startTime?'Erste Mahlzeit eintragen':'Beide Zeiten eintragen')
       )
     ),
 
+    // Also let user enter last meal today
+    card('Letzte Mahlzeit heute','var(--text2)',
+      h('div',{class:'fl',style:'margin-bottom:6px'},'Uhrzeit (wird morgen automatisch geladen)'),
+      mkTime(f.lastMealTime||fastEnd, v=>{
+        setPath(day,'fasten.lastMealTime',v);
+        ls.s(dk(),day);flashSaved();
+      })
+    ),
+
     h('div',{class:'ban a'},h('div',{class:'btit',style:'color:var(--amber)'},'Abend-Snack (bis '+fastEnd+')'),h('div',{class:'btxt'},SNACKS.join(' · '))),
-    card('Notiz','var(--text2)',field('',inp(f.note,v=>upDayQ('fasten.note',v),'Wie lief das Fasten heute?'))),
+    card('Notiz','var(--text2)',field('',inp(f.note||'',v=>upDayQ('fasten.note',v),'Wie lief das Fasten heute?'))),
     h('div',{class:'se'})
   );
 }
