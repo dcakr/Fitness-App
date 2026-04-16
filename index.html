@@ -550,13 +550,18 @@ function scoreBreakdown(d){
   const meals=['frueh','mittag','abend','snack'].filter(k=>d.essen&&d.essen[k]&&d.essen[k].trim().length>2).length;
   return[
     {l:'Fasten (25 Pkt)', v:(()=>{
-      const prev2=new Date(cur);prev2.setDate(prev2.getDate()-1);
-      const pd2=ls.g('fit:d:'+toISO(prev2));
-      const yl2=pd2&&pd2.fasten&&pd2.fasten.lastMealTime?pd2.fasten.lastMealTime:d.fasten&&d.fasten.lastMealTime;
-      const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,yl2);
       const th=parseInt((getProf()||{}).fastModel||'16');
-      return ah?parseFloat(ah).toFixed(1)+'h gefastet (Ziel: '+th+'h)':'Noch nicht eingetragen';
-    })(), ok:(()=>{const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,d.fasten&&d.fasten.lastMealTime);const th=parseInt((getProf()||{}).fastModel||'16');return ah&&parseFloat(ah)>=th;})(), partial:(()=>{const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,d.fasten&&d.fasten.lastMealTime);const th=parseInt((getProf()||{}).fastModel||'16');return ah&&parseFloat(ah)>=(th-1);})()},
+      const start=d.fasten&&(d.fasten.startFast||d.fasten.lastMealTime)||null;
+      const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime, start);
+      if(ah) return parseFloat(ah).toFixed(1)+'h gefastet (Ziel: '+th+'h)';
+      if(d.fasten&&d.fasten.done) return 'Eingehalten ✓ (alt)';
+      return 'Noch nicht eingetragen';
+    })(), ok:isFastDone(d), partial:(()=>{
+      const th=parseInt((getProf()||{}).fastModel||'16');
+      const start=d.fasten&&(d.fasten.startFast||d.fasten.lastMealTime)||null;
+      const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,start);
+      return ah&&parseFloat(ah)>=(th-1);
+    })()},
     {l:'Wasser (20 Pkt)',  v:(wc*.5).toFixed(1)+'L  ('+wc+'/6 Flaschen)', ok:wc>=6, partial:wc>=3},
     {l:'Sport (25 Pkt)',   v:sd>0?sd+' Einheit'+(sd>1?'en':'')+' erledigt':'Kein Sport', ok:sd>=2, partial:sd===1},
     {l:'Schlaf (20 Pkt)',  v:std?std+'h':' Nicht eingetragen', ok:std>=7&&std<=9, partial:std>=6},
