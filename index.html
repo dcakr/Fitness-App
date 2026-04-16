@@ -432,11 +432,18 @@ function progBar(pct,color){
   return b;
 }
 function getReminder(){
-  const n=new Date(),hh=n.getHours(),mm=n.getMinutes(),nm=hh*60+mm;
-  const es=9*60+30,ee=18*60+30;
-  if(nm<es){const d=es-nm;return{txt:'Erste Mahlzeit',sub:`in ${Math.floor(d/60)}h ${d%60}min`,c:'var(--amber)',icon:'⏳'};}
-  if(nm<ee){const d=ee-nm;return{txt:'Fastenstart',sub:`in ${Math.floor(d/60)}h ${d%60}min`,c:'var(--green)',icon:'⏱'};}
-  return{txt:'Fasten läuft ✅',sub:'Letzte Mahlzeit war 18:30',c:'var(--teal)',icon:'🔒'};
+  const n=new Date(),nm=n.getHours()*60+n.getMinutes();
+  const prof2=getProf()||{};
+  const model=prof2.fastModel||'16';
+  const targetH=parseInt(model);
+  const fastEnd=prof2.fastEnd||'18:30';
+  const fastEndMins=parseMins(fastEnd);
+  const eatWindowH=24-targetH;
+  const firstMealMins=(fastEndMins-(eatWindowH*60)+1440)%1440;
+  const firstTarget=minsToTime(firstMealMins);
+  if(nm<firstMealMins){const d=firstMealMins-nm;return{txt:'Erste Mahlzeit',sub:'in '+Math.floor(d/60)+'h '+(d%60)+'min ('+firstTarget+')',c:'var(--amber)',icon:'⏳'};}
+  if(nm<fastEndMins){const d=fastEndMins-nm;return{txt:'Fastenstart',sub:'in '+Math.floor(d/60)+'h '+(d%60)+'min ('+fastEnd+')',c:'var(--green)',icon:'⏱'};}
+  return{txt:'Fasten läuft ✅',sub:'Letzte Mahlzeit war '+fastEnd,c:'var(--teal)',icon:'🔒'};
 }
 function getWeekDays(){
   const days=[],d=new Date(cur);
@@ -499,10 +506,15 @@ function calcGoal(){
 function calcScore(d){
   if(!d)return null;
   let pts=0,max=100;
-  // Fasten 25pts
-  if(d.fasten.done)pts+=25;
-  else if(d.fasten.firstMeal&&d.fasten.lastMeal)pts+=15;
-  else if(d.fasten.firstMeal||d.fasten.lastMeal)pts+=8;
+  // Fasten 25pts – based on actual fasted hours
+  const prof2=getProf()||{};
+  const targetH2=parseInt(prof2.fastModel||'16');
+  const actualH=calcFastHours(d.fasten&&d.fasten.firstMealTime,d.fasten&&d.fasten.lastMealTime);
+  const fastedH=actualH?parseFloat(actualH):0;
+  if(fastedH>=targetH2)pts+=25;
+  else if(fastedH>=(targetH2-1))pts+=15;
+  else if(fastedH>=(targetH2-2))pts+=8;
+  else if(d.fasten&&d.fasten.done)pts+=25; // legacy
   // Wasser 20pts
   const wc=d.wasser.filter(Boolean).length;
   pts+=Math.round(wc/6*20);
@@ -535,7 +547,11 @@ function scoreBreakdown(d){
   const std=parseFloat(d.schlaf&&d.schlaf.std)||0;
   const meals=['frueh','mittag','abend','snack'].filter(k=>d.essen&&d.essen[k]&&d.essen[k].trim().length>2).length;
   return[
-    {l:'Fasten (25 Pkt)',  v:d.fasten.done?'✓ Eingehalten':d.fasten.firstMeal||d.fasten.lastMeal?'Teilweise':'–', ok:d.fasten.done, partial:d.fasten.firstMeal||d.fasten.lastMeal},
+    {l:'Fasten (25 Pkt)', v:(()=>{
+      const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,d.fasten&&d.fasten.lastMealTime);
+      const th=parseInt((getProf()||{}).fastModel||'16');
+      return ah?parseFloat(ah).toFixed(1)+'h gefastet (Ziel: '+th+'h)':'Noch nicht eingetragen';
+    })(), ok:(()=>{const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,d.fasten&&d.fasten.lastMealTime);const th=parseInt((getProf()||{}).fastModel||'16');return ah&&parseFloat(ah)>=th;})(), partial:(()=>{const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,d.fasten&&d.fasten.lastMealTime);const th=parseInt((getProf()||{}).fastModel||'16');return ah&&parseFloat(ah)>=(th-1);})()},
     {l:'Wasser (20 Pkt)',  v:(wc*.5).toFixed(1)+'L  ('+wc+'/6 Flaschen)', ok:wc>=6, partial:wc>=3},
     {l:'Sport (25 Pkt)',   v:sd>0?sd+' Einheit'+(sd>1?'en':'')+' erledigt':'Kein Sport', ok:sd>=2, partial:sd===1},
     {l:'Schlaf (20 Pkt)',  v:std?std+'h':' Nicht eingetragen', ok:std>=7&&std<=9, partial:std>=6},
@@ -694,25 +710,102 @@ function rDashboard(){
   );
 }
 
+function parseMins(t){if(!t)return null;const[h,m]=(t+'').split(':').map(Number);return isNaN(h)||isNaN(m)?null:h*60+m;}
+function minsToTime(m){const hh=Math.floor(((m%1440)+1440)%1440/60),mm=((m%1440)+1440)%1440%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
+function calcFastHours(first,last){
+  const fMin=parseMins(first),lMin=parseMins(last);
+  if(!fMin||!lMin)return null;
+  let fast=lMin-fMin; // eating window
+  if(fast<0)fast+=1440;
+  return (24-fast/60).toFixed(1); // fasting = 24 - eating
+}
+
 function rFasten(){
   const f=day.fasten;
-  const es=9.5/24*100,ew=9/24*100;
+  const prof=getProf()||{};
+  const model=prof.fastModel||'16';
+  const targetH=parseInt(model);
+  const fastEnd=prof.fastEnd||'18:30';
+  const fastEndMins=parseMins(fastEnd);
+  const eatWindowH=24-targetH;
+  const firstMealMins=(fastEndMins-(eatWindowH*60)+1440)%1440;
+  const firstMealTarget=minsToTime(firstMealMins);
+
+  const actualHours=calcFastHours(f.firstMealTime,f.lastMealTime);
+  const success=actualHours&&parseFloat(actualHours)>=targetH;
+  const partial=actualHours&&parseFloat(actualHours)>=(targetH-1);
+  const col=success?'var(--green)':partial?'var(--amber)':'var(--red)';
+
+  // timeline
+  const eatStartPct=firstMealMins/1440*100;
+  const eatWidthPct=eatWindowH/24*100;
+
+  function onTimeChange(field,val){
+    upDayQ('fasten.'+field,val);
+    setTimeout(()=>{
+      const h2=calcFastHours(day.fasten.firstMealTime,day.fasten.lastMealTime);
+      const ok=h2&&parseFloat(h2)>=targetH;
+      upDayQ('fasten.done',!!ok);
+      const el=document.getElementById('fast-hours');
+      if(el){el.textContent=h2?h2+'h':'–';el.style.color=ok?'var(--green)':h2&&parseFloat(h2)>=(targetH-1)?'var(--amber)':'var(--red)';}
+    },100);
+  }
+
   return h('div',{},
+    // Model + timeline card
     card(null,null,
       h('div',{style:'display:flex;gap:8px;margin-bottom:14px'},
-        h('span',{class:'pill',style:'background:rgba(26,162,68,.2);color:var(--green)'},'16h Fasten'),
-        h('span',{class:'pill',style:'background:rgba(48,209,88,.15);color:var(--green)'},'8h Essen'),
+        h('span',{class:'pill',style:'background:rgba(48,209,88,.2);color:var(--green)'},targetH+'h Fasten'),
+        h('span',{class:'pill',style:'background:rgba(10,132,255,.15);color:var(--blue)'},eatWindowH+'h Essen'),
+        h('span',{class:'pill',style:'background:var(--bg2);color:var(--text2)'},'Ziel: bis '+fastEnd)
       ),
-      h('div',{class:'tlbar'},h('div',{class:'tleat',style:`left:${es}%;width:${ew}%`}),h('div',{class:'tllbl',style:`left:${es}%;width:${ew}%;color:#000`},'9:30 – 18:30')),
-      h('div',{class:'tlticks'},h('span',{},'0:00'),h('span',{},'9:30'),h('span',{},'18:30'),h('span',{},'24:00'))
+      h('div',{class:'tlbar'},
+        h('div',{class:'tleat',style:'left:'+eatStartPct+'%;width:'+eatWidthPct+'%'}),
+        h('div',{class:'tllbl',style:'left:'+eatStartPct+'%;width:'+eatWidthPct+'%;color:#000'},firstMealTarget+' – '+fastEnd)
+      ),
+      h('div',{class:'tlticks'},h('span',{},'0:00'),h('span',{},firstMealTarget),h('span',{},fastEnd),h('span',{},'24:00'))
     ),
-    card('Heute erledigt','var(--green)',
-      chk(f.firstMeal,'Erste Mahlzeit um 9:30',()=>upDay('fasten.firstMeal',!f.firstMeal)),
-      chk(f.lastMeal, 'Letzte Mahlzeit um 18:30',()=>upDay('fasten.lastMeal',!f.lastMeal)),
-      chk(f.done,     '16h Fasten eingehalten',  ()=>upDay('fasten.done',!f.done)),
+
+    // Time pickers
+    card('Heute eintragen','var(--green)',
+      h('div',{class:'ig2',style:'margin-bottom:14px'},
+        h('div',{},
+          h('div',{class:'fl',style:'margin-bottom:6px'},'Erste Mahlzeit'),
+          (()=>{
+            const el=document.createElement('input');el.type='time';
+            el.value=f.firstMealTime||'';
+            el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none';
+            el.addEventListener('change',e=>onTimeChange('firstMealTime',e.target.value));
+            return el;
+          })()
+        ),
+        h('div',{},
+          h('div',{class:'fl',style:'margin-bottom:6px'},'Letzte Mahlzeit'),
+          (()=>{
+            const el=document.createElement('input');el.type='time';
+            el.value=f.lastMealTime||'';
+            el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none';
+            el.addEventListener('change',e=>onTimeChange('lastMealTime',e.target.value));
+            return el;
+          })()
+        )
+      ),
+      // Result
+      h('div',{style:'background:var(--bg2);border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between'},
+        h('div',{},
+          h('div',{class:'fl'},'Gefastete Stunden'),
+          h('div',{id:'fast-hours',style:'font-size:36px;font-weight:300;margin-top:2px;color:'+(actualHours?(success?'var(--green)':partial?'var(--amber)':'var(--red)'):'var(--text2)')},
+            actualHours?actualHours+'h':'–')
+        ),
+        actualHours?h('div',{style:'text-align:right'},
+          h('div',{class:'pill',style:'background:var(--bg3);color:'+col},success?'Ziel ✓ '+targetH+'h':partial?'Fast geschafft 🟡':'Ziel verfehlt ❌'),
+          h('div',{style:'font-size:11px;color:var(--text2);margin-top:4px'},'Ziel: ≥'+targetH+'h')
+        ):h('div',{style:'font-size:12px;color:var(--text3)'},'Zeiten eintragen')
+      )
     ),
-    h('div',{class:'ban a'},h('div',{class:'btit',style:'color:var(--amber)'},'Abend-Snack (bis 18:30)'),h('div',{class:'btxt'},SNACKS.join(' · '))),
-    card('Notiz','var(--text2)', field('',inp(f.note,v=>upDayQ('fasten.note',v),'Wie lief das Fasten heute?'))),
+
+    h('div',{class:'ban a'},h('div',{class:'btit',style:'color:var(--amber)'},'Abend-Snack (bis '+fastEnd+')'),h('div',{class:'btxt'},SNACKS.join(' · '))),
+    card('Notiz','var(--text2)',field('',inp(f.note,v=>upDayQ('fasten.note',v),'Wie lief das Fasten heute?'))),
     h('div',{class:'se'})
   );
 }
@@ -1199,6 +1292,8 @@ function showSetup(edit=false){
   const tgI=Object.assign(document.createElement('input'),{type:'number',step:'0.1',value:p.targetWeight||'',placeholder:'z.B. 83.0',className:'setup-inp'});
   const goalWeeksI=Object.assign(document.createElement('input'),{type:'number',value:p.goalWeeks||'',placeholder:'z.B. 12',className:'setup-inp'});
   const goalStartI=Object.assign(document.createElement('input'),{type:'date',value:p.goalStart||(new Date().toISOString().split('T')[0]),className:'setup-inp'});
+  let fastModel=p.fastModel||'16';
+  const fastEndI=Object.assign(document.createElement('input'),{type:'time',value:p.fastEnd||'18:30',className:'setup-inp'});
   const ageI=Object.assign(document.createElement('input'),{type:'number',value:p.age||'',placeholder:'z.B. 42',className:'setup-inp'});
   const mB=h('div',{class:'gbtn'+(g==='m'?' on':''),onClick:()=>{g='m';mB.className='gbtn on';wB.className='gbtn';}},'💪',h('span',{},'Mann'));
   const wB=h('div',{class:'gbtn'+(g==='w'?' on':''),onClick:()=>{g='w';wB.className='gbtn on';mB.className='gbtn';}},'🌸',h('span',{},'Frau'));
@@ -1211,11 +1306,22 @@ function showSetup(edit=false){
     h('label',{class:'slabel'},'Körpergröße (cm)'),htI,
     h('label',{class:'slabel'},'Startgewicht (kg)'),wI,
     h('label',{class:'slabel'},'Zielgewicht (kg)'),tgI,
+    h('label',{class:'slabel'},'Fastenmodell'),
+    (()=>{
+      const row=h('div',{class:'grows'});
+      const b14=h('div',{class:'gbtn'+(fastModel==='14'?' on':''),onClick:()=>{fastModel='14';b14.className='gbtn on';b16.className='gbtn';}},
+        '🕐',h('span',{},'14:10'));
+      const b16=h('div',{class:'gbtn'+(fastModel==='16'?' on':''),onClick:()=>{fastModel='16';b16.className='gbtn on';b14.className='gbtn';}},
+        '⏱',h('span',{},'16:8'));
+      row.append(b14,b16);
+      return row;
+    })(),
+    h('label',{class:'slabel'},'Letzte Mahlzeit – Zielzeit'),fastEndI,
     h('label',{class:'slabel'},'Ziel erreichen in (Wochen)'),goalWeeksI,
     h('label',{class:'slabel'},'Startdatum'),goalStartI,
     h('label',{class:'slabel'},'Alter (Jahre)'),ageI,
     h('button',{class:'save-btn',onClick:()=>{
-      saveProf({name:nameI.value||'Du',gender:g||'m',height:parseFloat(htI.value)||175,weight:parseFloat(wI.value)||85,targetWeight:parseFloat(tgI.value)||null,goalWeeks:parseInt(goalWeeksI.value)||null,goalStart:goalStartI.value||new Date().toISOString().split('T')[0],age:parseInt(ageI.value)||null});
+      saveProf({name:nameI.value||'Du',gender:g||'m',height:parseFloat(htI.value)||175,weight:parseFloat(wI.value)||85,targetWeight:parseFloat(tgI.value)||null,goalWeeks:parseInt(goalWeeksI.value)||null,goalStart:goalStartI.value||new Date().toISOString().split('T')[0],age:parseInt(ageI.value)||null,fastModel:fastModel||'16',fastEnd:fastEndI.value||'18:30'});
       scr.style.display='none';sec='dashboard';render();
     }},edit?'Speichern ✓':'Los geht\'s! 💪')
   );
