@@ -508,10 +508,7 @@ function calcScore(d){
   // Fasten 25pts – based on actual fasted hours
   const prof2=getProf()||{};
   const targetH2=parseInt(prof2.fastModel||'16');
-  const prevDay=new Date(cur);prevDay.setDate(prevDay.getDate()-1);
-  const prevData=ls.g('fit:d:'+toISO(prevDay));
-  const ylast=prevData&&prevData.fasten&&prevData.fasten.lastMealTime?prevData.fasten.lastMealTime:d.fasten&&d.fasten.lastMealTime;
-  const actualH=calcFastHours(d.fasten&&d.fasten.firstMealTime,ylast);
+  const actualH=calcFastHours(d.fasten&&d.fasten.firstMealTime, d.fasten&&d.fasten.startFast||null);
   const fastedH=actualH?parseFloat(actualH):0;
   if(fastedH>=targetH2)pts+=25;
   else if(fastedH>=(targetH2-1))pts+=15;
@@ -551,14 +548,14 @@ function scoreBreakdown(d){
   return[
     {l:'Fasten (25 Pkt)', v:(()=>{
       const th=parseInt((getProf()||{}).fastModel||'16');
-      const start=d.fasten&&(d.fasten.startFast||d.fasten.lastMealTime)||null;
+      const start=d.fasten&&d.fasten.startFast||null;
       const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime, start);
       if(ah) return parseFloat(ah).toFixed(1)+'h gefastet (Ziel: '+th+'h)';
       if(d.fasten&&d.fasten.done) return 'Eingehalten ✓ (alt)';
       return 'Noch nicht eingetragen';
     })(), ok:isFastDone(d), partial:(()=>{
       const th=parseInt((getProf()||{}).fastModel||'16');
-      const start=d.fasten&&(d.fasten.startFast||d.fasten.lastMealTime)||null;
+      const start=d.fasten&&d.fasten.startFast||null;
       const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,start);
       return ah&&parseFloat(ah)>=(th-1);
     })()},
@@ -740,8 +737,7 @@ function isFastDone(data){
   const prof=getProf()||{};
   const targetH=parseInt(prof.fastModel||'16');
   const f=data.fasten;
-  // need yesterday's last meal for this day
-  const fh=calcFastHours(f.firstMealTime, f.startFast||null);
+  const fh=calcFastHours(f.firstMealTime, f.startFast||null); // startFast = last meal of PREVIOUS day
   return fh!==null&&parseFloat(fh)>=targetH;
 }
 
@@ -753,6 +749,11 @@ function rFasten(){
   const fastEnd=prof.fastEnd||'18:30';
 
   const autoYest=getYesterdayLastMeal();
+  // If auto-yesterday exists and startFast not yet manually set, save it silently
+  if(autoYest&&!f.startFast){
+    setPath(day,'fasten.startFast',autoYest);
+    ls.s(dk(),day);
+  }
   const selYest=f.startFast||autoYest||null;
   const selFirst=f.firstMealTime||null;
   const fhours=calcFastHours(selFirst,selYest);
