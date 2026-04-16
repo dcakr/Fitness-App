@@ -747,10 +747,10 @@ function rFasten(){
   const startTime=f.startFast||autoYesterday||'';
   const endTime=f.firstMealTime||'';
   const hours=calcFastHours(endTime,startTime);
-  const h=hours?parseFloat(hours):null;
-  const success=h!==null&&h>=targetH;
-  const partial=h!==null&&h>=(targetH-1);
-  const col=h===null?'var(--text2)':success?'var(--green)':partial?'var(--amber)':'var(--red)';
+  const fh=hours?parseFloat(hours):null;
+  const success=fh!==null&&fh>=targetH;
+  const partial=fh!==null&&fh>=(targetH-1);
+  const col=fh===null?'var(--text2)':success?'var(--green)':partial?'var(--amber)':'var(--red)';
 
   function mkTime(val,onchange){
     const el=document.createElement('input');
@@ -803,9 +803,9 @@ function rFasten(){
         h('div',{},
           h('div',{class:'fl'},'Gefastete Stunden'),
           h('div',{style:'font-size:40px;font-weight:300;margin-top:2px;color:'+col},
-            h!==null?hours+'h':'–')
+            fh!==null?hours+'h':'–')
         ),
-        h!==null
+        fh!==null
           ? h('div',{style:'text-align:right'},
               h('div',{class:'pill',style:'background:var(--bg3);color:'+col},
                 success?'Ziel ✓ '+targetH+'h':partial?'Fast ✓ 🟡':'Ziel verfehlt ❌'),
