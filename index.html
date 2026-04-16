@@ -389,7 +389,7 @@ function calcStreak(){
   let s=0,d=new Date(cur);
   for(let i=0;i<365;i++){
     const data=ls.g('fit:d:'+toISO(d));
-    if(data&&isFastDone(data))s++;
+    if(data&&isFastDone(data,d))s++;
     else if(i>0)break;
     d.setDate(d.getDate()-1);
   }
@@ -508,7 +508,8 @@ function calcScore(d){
   // Fasten 25pts – based on actual fasted hours
   const prof2=getProf()||{};
   const targetH2=parseInt(prof2.fastModel||'16');
-  const actualH=calcFastHours(d.fasten&&d.fasten.firstMealTime, d.fasten&&d.fasten.startFast||null);
+  const _sf=d.fasten&&d.fasten.startFast||null;
+  const actualH=calcFastHours(d.fasten&&d.fasten.firstMealTime,_sf);
   const fastedH=actualH?parseFloat(actualH):0;
   if(fastedH>=targetH2)pts+=25;
   else if(fastedH>=(targetH2-1))pts+=15;
@@ -548,7 +549,7 @@ function scoreBreakdown(d){
   return[
     {l:'Fasten (25 Pkt)', v:(()=>{
       const th=parseInt((getProf()||{}).fastModel||'16');
-      const start=d.fasten&&d.fasten.startFast||null;
+      let start=d.fasten&&d.fasten.startFast||null;
       const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime, start);
       if(ah) return parseFloat(ah).toFixed(1)+'h gefastet (Ziel: '+th+'h)';
       if(d.fasten&&d.fasten.done) return 'Eingehalten ✓ (alt)';
@@ -731,13 +732,21 @@ function getYesterdayLastMeal(){
   return (data&&data.fasten&&data.fasten.lastMealTime)||null;
 }
 
-function isFastDone(data){
+function isFastDone(data, date){
   if(!data||!data.fasten)return false;
   if(data.fasten.done)return true; // legacy
   const prof=getProf()||{};
   const targetH=parseInt(prof.fastModel||'16');
   const f=data.fasten;
-  const fh=calcFastHours(f.firstMealTime, f.startFast||null); // startFast = last meal of PREVIOUS day
+  // 1. use stored startFast if available
+  let start=f.startFast||null;
+  // 2. else look up previous day's lastMealTime
+  if(!start&&date){
+    const prev=new Date(date);prev.setDate(prev.getDate()-1);
+    const pd=ls.g('fit:d:'+toISO(prev));
+    start=pd&&pd.fasten&&pd.fasten.lastMealTime||null;
+  }
+  const fh=calcFastHours(f.firstMealTime,start);
   return fh!==null&&parseFloat(fh)>=targetH;
 }
 
@@ -749,11 +758,7 @@ function rFasten(){
   const fastEnd=prof.fastEnd||'18:30';
 
   const autoYest=getYesterdayLastMeal();
-  // If auto-yesterday exists and startFast not yet manually set, save it silently
-  if(autoYest&&!f.startFast){
-    setPath(day,'fasten.startFast',autoYest);
-    ls.s(dk(),day);
-  }
+  // user selection wins; autoYest is only a default suggestion
   const selYest=f.startFast||autoYest||null;
   const selFirst=f.firstMealTime||null;
   const fhours=calcFastHours(selFirst,selYest);
@@ -819,14 +824,13 @@ function rFasten(){
   yTitle.style.color='var(--text2)';
   yTitle.textContent='Letzte Mahlzeit gestern';
   yCard.appendChild(yTitle);
-  if(autoYest){
-    const autoRow=document.createElement('div');
-    autoRow.style.cssText='background:var(--bg2);border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center';
-    autoRow.innerHTML='<span style="font-size:20px;font-weight:500">'+autoYest+'</span><span style="font-size:12px;color:var(--green)">Automatisch ✓</span>';
-    yCard.appendChild(autoRow);
-  } else {
-    yCard.appendChild(btnRow(['17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30'],selYest,'var(--green)','startFast'));
+  if(autoYest&&!f.startFast){
+    const hint=document.createElement('div');
+    hint.style.cssText='font-size:11px;color:var(--green);margin-bottom:8px';
+    hint.textContent='Vorschlag aus gestern: '+autoYest+' – tippe zum Bestätigen oder wähle andere Zeit';
+    yCard.appendChild(hint);
   }
+  yCard.appendChild(btnRow(['17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30'],selYest,'var(--green)','startFast'));
   wrap.appendChild(yCard);
 
   // First meal card
@@ -855,7 +859,7 @@ function rFasten(){
     badge.textContent=success?'Ziel ✓ '+targetH+'h':partial?'Fast ✓ 🟡':'Ziel verfehlt ❌';
     const sub=document.createElement('div');
     sub.style.cssText='font-size:11px;color:var(--text2);margin-top:6px';
-    sub.textContent=selYest+' → '+selFirst;
+    sub.textContent=(selYest||'?')+' → '+(selFirst||'?');
     resRight.append(badge,sub);
   } else {
     resRight.style.cssText='font-size:13px;color:var(--text3)';
@@ -1142,7 +1146,7 @@ function rWoche(){
       h('div',{class:'wkgrid'},
         ...days.map((d,i)=>{
           const iso=toISO(d.date),isToday=iso===tod,data=d.data,future=d.date>new Date(new Date().toDateString());
-          const fast=data&&isFastDone(data);
+          const fast=data&&isFastDone(data,d.date);
           const water=data?data.wasser.filter(Boolean).length:0;
           const sport=data?SP.filter(s=>data.sport[s.key].done).length:0;
           return h('div',{class:'wkday'+(isToday?' today':''),onClick:()=>{cur=new Date(d.date);load();sec='dashboard';render();}},
@@ -1170,7 +1174,7 @@ function rWoche(){
       )
     ),
     h('div',{class:'sg3',style:'margin-bottom:11px'},
-      h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--green)'},days.filter(d=>d.data&&isFastDone(d.data)).length+'/'+(days.filter(d=>toISO(d.date)<=tod).length)),h('div',{class:'sl'},'Fasten-Tage')),
+      h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--green)'},days.filter(d=>d.data&&isFastDone(d.data,d.date)).length+'/'+(days.filter(d=>toISO(d.date)<=tod).length)),h('div',{class:'sl'},'Fasten-Tage')),
       h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--blue)'},days.filter(d=>d.data&&d.data.wasser.filter(Boolean).length>=6).length+'x'),h('div',{class:'sl'},'3L-Tage')),
       h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--amber)'},days.reduce((a,d)=>a+(d.data?SP.filter(s=>d.data.sport[s.key].done).length:0),0)+'x'),h('div',{class:'sl'},'Sport'))
     ),
