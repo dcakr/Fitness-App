@@ -509,7 +509,10 @@ function calcScore(d){
   // Fasten 25pts – based on actual fasted hours
   const prof2=getProf()||{};
   const targetH2=parseInt(prof2.fastModel||'16');
-  const actualH=calcFastHours(d.fasten&&d.fasten.firstMealTime,d.fasten&&d.fasten.lastMealTime);
+  const prevDay=new Date(cur);prevDay.setDate(prevDay.getDate()-1);
+  const prevData=ls.g('fit:d:'+toISO(prevDay));
+  const ylast=prevData&&prevData.fasten&&prevData.fasten.lastMealTime?prevData.fasten.lastMealTime:d.fasten&&d.fasten.lastMealTime;
+  const actualH=calcFastHours(d.fasten&&d.fasten.firstMealTime,ylast);
   const fastedH=actualH?parseFloat(actualH):0;
   if(fastedH>=targetH2)pts+=25;
   else if(fastedH>=(targetH2-1))pts+=15;
@@ -548,7 +551,10 @@ function scoreBreakdown(d){
   const meals=['frueh','mittag','abend','snack'].filter(k=>d.essen&&d.essen[k]&&d.essen[k].trim().length>2).length;
   return[
     {l:'Fasten (25 Pkt)', v:(()=>{
-      const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,d.fasten&&d.fasten.lastMealTime);
+      const prev2=new Date(cur);prev2.setDate(prev2.getDate()-1);
+      const pd2=ls.g('fit:d:'+toISO(prev2));
+      const yl2=pd2&&pd2.fasten&&pd2.fasten.lastMealTime?pd2.fasten.lastMealTime:d.fasten&&d.fasten.lastMealTime;
+      const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,yl2);
       const th=parseInt((getProf()||{}).fastModel||'16');
       return ah?parseFloat(ah).toFixed(1)+'h gefastet (Ziel: '+th+'h)':'Noch nicht eingetragen';
     })(), ok:(()=>{const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,d.fasten&&d.fasten.lastMealTime);const th=parseInt((getProf()||{}).fastModel||'16');return ah&&parseFloat(ah)>=th;})(), partial:(()=>{const ah=calcFastHours(d.fasten&&d.fasten.firstMealTime,d.fasten&&d.fasten.lastMealTime);const th=parseInt((getProf()||{}).fastModel||'16');return ah&&parseFloat(ah)>=(th-1);})()},
@@ -712,12 +718,18 @@ function rDashboard(){
 
 function parseMins(t){if(!t)return null;const[h,m]=(t+'').split(':').map(Number);return isNaN(h)||isNaN(m)?null:h*60+m;}
 function minsToTime(m){const hh=Math.floor(((m%1440)+1440)%1440/60),mm=((m%1440)+1440)%1440%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
-function calcFastHours(first,last){
-  const fMin=parseMins(first),lMin=parseMins(last);
+function calcFastHours(firstToday, lastYesterday){
+  // Real fast = from last meal yesterday to first meal today
+  const fMin=parseMins(firstToday), lMin=parseMins(lastYesterday);
   if(!fMin||!lMin)return null;
-  let fast=lMin-fMin; // eating window
-  if(fast<0)fast+=1440;
-  return (24-fast/60).toFixed(1); // fasting = 24 - eating
+  let diff=fMin+(1440-lMin); // minutes from lastYesterday to firstToday (next day)
+  if(diff<=0)diff+=1440;
+  return (diff/60).toFixed(1);
+}
+function getYesterdayLastMeal(){
+  const prev=new Date(cur);prev.setDate(prev.getDate()-1);
+  const data=ls.g('fit:d:'+toISO(prev));
+  return data&&data.fasten&&data.fasten.lastMealTime?data.fasten.lastMealTime:null;
 }
 
 function rFasten(){
@@ -731,7 +743,8 @@ function rFasten(){
   const firstMealMins=(fastEndMins-(eatWindowH*60)+1440)%1440;
   const firstMealTarget=minsToTime(firstMealMins);
 
-  const actualHours=calcFastHours(f.firstMealTime,f.lastMealTime);
+  const yesterdayLast=getYesterdayLastMeal();
+  const actualHours=calcFastHours(f.firstMealTime, yesterdayLast||f.lastMealTime);
   const success=actualHours&&parseFloat(actualHours)>=targetH;
   const partial=actualHours&&parseFloat(actualHours)>=(targetH-1);
   const col=success?'var(--green)':partial?'var(--amber)':'var(--red)';
@@ -743,7 +756,8 @@ function rFasten(){
   function onTimeChange(field,val){
     upDayQ('fasten.'+field,val);
     setTimeout(()=>{
-      const h2=calcFastHours(day.fasten.firstMealTime,day.fasten.lastMealTime);
+      const yl=getYesterdayLastMeal()||day.fasten.lastMealTime;
+      const h2=calcFastHours(day.fasten.firstMealTime,yl);
       const ok=h2&&parseFloat(h2)>=targetH;
       upDayQ('fasten.done',!!ok);
       const el=document.getElementById('fast-hours');
@@ -768,9 +782,18 @@ function rFasten(){
 
     // Time pickers
     card('Heute eintragen','var(--green)',
+      // Yesterday's last meal (auto-loaded, editable as fallback)
+      h('div',{style:'background:var(--bg2);border-radius:10px;padding:11px 13px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center'},
+        h('div',{},
+          h('div',{style:'font-size:11px;color:var(--text2);margin-bottom:2px'},'Letzte Mahlzeit gestern'),
+          h('div',{style:'font-size:16px;font-weight:500;color:'+(yesterdayLast?'var(--text)':'var(--text3)')},yesterdayLast||'Nicht eingetragen')
+        ),
+        yesterdayLast?h('div',{style:'font-size:20px'},'✓'):
+        h('div',{style:'font-size:11px;color:var(--amber);text-align:right'},'Gestern eintragen')
+      ),
       h('div',{class:'ig2',style:'margin-bottom:14px'},
         h('div',{},
-          h('div',{class:'fl',style:'margin-bottom:6px'},'Erste Mahlzeit'),
+          h('div',{class:'fl',style:'margin-bottom:6px'},'Erste Mahlzeit heute'),
           (()=>{
             const el=document.createElement('input');el.type='time';
             el.value=f.firstMealTime||'';
@@ -780,10 +803,10 @@ function rFasten(){
           })()
         ),
         h('div',{},
-          h('div',{class:'fl',style:'margin-bottom:6px'},'Letzte Mahlzeit'),
+          h('div',{class:'fl',style:'margin-bottom:6px'},'Letzte Mahlzeit heute'),
           (()=>{
             const el=document.createElement('input');el.type='time';
-            el.value=f.lastMealTime||'';
+            el.value=f.lastMealTime||fastEnd;
             el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none';
             el.addEventListener('change',e=>onTimeChange('lastMealTime',e.target.value));
             return el;
@@ -1309,11 +1332,13 @@ function showSetup(edit=false){
     h('label',{class:'slabel'},'Fastenmodell'),
     (()=>{
       const row=h('div',{class:'grows'});
-      const b14=h('div',{class:'gbtn'+(fastModel==='14'?' on':''),onClick:()=>{fastModel='14';b14.className='gbtn on';b16.className='gbtn';}},
+      const b14=h('div',{class:'gbtn'+(fastModel==='14'?' on':''),onClick:()=>{fastModel='14';b14.className='gbtn on';b15.className='gbtn';b16.className='gbtn';}},
         '🕐',h('span',{},'14:10'));
-      const b16=h('div',{class:'gbtn'+(fastModel==='16'?' on':''),onClick:()=>{fastModel='16';b16.className='gbtn on';b14.className='gbtn';}},
-        '⏱',h('span',{},'16:8'));
-      row.append(b14,b16);
+      const b15=h('div',{class:'gbtn'+(fastModel==='15'?' on':''),onClick:()=>{fastModel='15';b15.className='gbtn on';b14.className='gbtn';b16.className='gbtn';}},
+        '⏱',h('span',{},'15:9'));
+      const b16=h('div',{class:'gbtn'+(fastModel==='16'?' on':''),onClick:()=>{fastModel='16';b16.className='gbtn on';b14.className='gbtn';b15.className='gbtn';}},
+        '⏰',h('span',{},'16:8'));
+      row.append(b14,b15,b16);
       return row;
     })(),
     h('label',{class:'slabel'},'Letzte Mahlzeit – Zielzeit'),fastEndI,
