@@ -744,10 +744,11 @@ function rFasten(){
   const firstMealTarget=minsToTime(firstMealMins);
 
   const yesterdayLast=getYesterdayLastMeal();
-  const actualHours=calcFastHours(f.firstMealTime, yesterdayLast||f.lastMealTime);
+  const effectiveYesterday=yesterdayLast||f.manualYesterdayLast||null;
+  const actualHours=effectiveYesterday?calcFastHours(f.firstMealTime,effectiveYesterday):null;
   const success=actualHours&&parseFloat(actualHours)>=targetH;
   const partial=actualHours&&parseFloat(actualHours)>=(targetH-1);
-  const col=success?'var(--green)':partial?'var(--amber)':'var(--red)';
+  const col=!actualHours?'var(--text2)':success?'var(--green)':partial?'var(--amber)':'var(--red)';
 
   // timeline
   const eatStartPct=firstMealMins/1440*100;
@@ -756,8 +757,8 @@ function rFasten(){
   function onTimeChange(field,val){
     upDayQ('fasten.'+field,val);
     setTimeout(()=>{
-      const yl=getYesterdayLastMeal()||day.fasten.lastMealTime;
-      const h2=calcFastHours(day.fasten.firstMealTime,yl);
+      const yl=getYesterdayLastMeal()||day.fasten.manualYesterdayLast||null;
+      const h2=yl?calcFastHours(day.fasten.firstMealTime,yl):null;
       const ok=h2&&parseFloat(h2)>=targetH;
       upDayQ('fasten.done',!!ok);
       const el=document.getElementById('fast-hours');
@@ -782,15 +783,36 @@ function rFasten(){
 
     // Time pickers
     card('Heute eintragen','var(--green)',
-      // Yesterday's last meal (auto-loaded, editable as fallback)
-      h('div',{style:'background:var(--bg2);border-radius:10px;padding:11px 13px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center'},
-        h('div',{},
-          h('div',{style:'font-size:11px;color:var(--text2);margin-bottom:2px'},'Letzte Mahlzeit gestern'),
-          h('div',{style:'font-size:16px;font-weight:500;color:'+(yesterdayLast?'var(--text)':'var(--text3)')},yesterdayLast||'Nicht eingetragen')
-        ),
-        yesterdayLast?h('div',{style:'font-size:20px'},'✓'):
-        h('div',{style:'font-size:11px;color:var(--amber);text-align:right'},'Gestern eintragen')
+      // Yesterday's last meal row
+      h('div',{style:'margin-bottom:12px'},
+        h('div',{class:'fl',style:'margin-bottom:6px'},'Letzte Mahlzeit gestern'),
+        yesterdayLast
+          // auto-loaded from yesterday → readonly display
+          ? h('div',{style:'background:var(--bg2);border-radius:10px;padding:11px 13px;display:flex;justify-content:space-between;align-items:center'},
+              h('div',{style:'font-size:17px;font-weight:500'},yesterdayLast),
+              h('div',{style:'font-size:11px;color:var(--green)'},'Automatisch ✓')
+            )
+          // not yet in storage → manual input
+          : (()=>{
+              const el=document.createElement('input');el.type='time';
+              el.value=f.manualYesterdayLast||fastEnd;
+              el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none';
+              el.placeholder=fastEnd;
+              el.addEventListener('change',e=>{
+                upDayQ('fasten.manualYesterdayLast',e.target.value);
+                setTimeout(()=>{
+                  const yl=e.target.value;
+                  const h2=calcFastHours(day.fasten.firstMealTime,yl);
+                  const ok=h2&&parseFloat(h2)>=targetH;
+                  upDayQ('fasten.done',!!ok);
+                  const el2=document.getElementById('fast-hours');
+                  if(el2){el2.textContent=h2?h2+'h':'–';el2.style.color=ok?'var(--green)':h2&&parseFloat(h2)>=(targetH-1)?'var(--amber)':'var(--red)';}
+                },100);
+              });
+              return el;
+            })()
       ),
+      // Today: first + last meal
       h('div',{class:'ig2',style:'margin-bottom:14px'},
         h('div',{},
           h('div',{class:'fl',style:'margin-bottom:6px'},'Erste Mahlzeit heute'),
