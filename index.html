@@ -389,7 +389,7 @@ function calcStreak(){
   let s=0,d=new Date(cur);
   for(let i=0;i<365;i++){
     const data=ls.g('fit:d:'+toISO(d));
-    if(data&&data.fasten&&data.fasten.done)s++;
+    if(data&&isFastDone(data))s++;
     else if(i>0)break;
     d.setDate(d.getDate()-1);
   }
@@ -516,7 +516,7 @@ function calcScore(d){
   if(fastedH>=targetH2)pts+=25;
   else if(fastedH>=(targetH2-1))pts+=15;
   else if(fastedH>=(targetH2-2))pts+=8;
-  else if(d.fasten&&d.fasten.done)pts+=25; // legacy
+  else if(d.fasten&&(d.fasten.done||isFastDone(d)))pts+=25; // legacy
   // Wasser 20pts
   const wc=d.wasser.filter(Boolean).length;
   pts+=Math.round(wc/6*20);
@@ -610,7 +610,7 @@ function rDashboard(){
       );
     })(),
     h('div',{class:'sg3',style:'margin-bottom:11px'},
-      h('div',{class:'sc'},h('div',{class:'sv',style:`color:${day.fasten.done?'var(--green)':'var(--text2)'}`},day.fasten.done?'✓':'–'),h('div',{class:'sl'},'Fasten')),
+      h('div',{class:'sc'},h('div',{class:'sv',style:'color:'+(isFastDone(day)?'var(--green)':'var(--text2)')},isFastDone(day)?'✓':'–'),h('div',{class:'sl'},'Fasten')),
       h('div',{class:'sc'},h('div',{class:'sv',style:`color:${wc===6?'var(--blue)':'var(--text2)'}`},(wc*.5).toFixed(1)+'L'),h('div',{class:'sl'},'Wasser')),
       h('div',{class:'sc'},h('div',{class:'sv',style:`color:${sd>0?'var(--green)':'var(--text2)'}`},sd+'/'+SP.length),h('div',{class:'sl'},'Sport')),
     ),
@@ -727,6 +727,17 @@ function getYesterdayLastMeal(){
   const prev=new Date(cur);prev.setDate(prev.getDate()-1);
   const data=ls.g('fit:d:'+toISO(prev));
   return (data&&data.fasten&&data.fasten.lastMealTime)||null;
+}
+
+function isFastDone(data){
+  if(!data||!data.fasten)return false;
+  if(data.fasten.done)return true; // legacy
+  const prof=getProf()||{};
+  const targetH=parseInt(prof.fastModel||'16');
+  const f=data.fasten;
+  // need yesterday's last meal for this day
+  const fh=calcFastHours(f.firstMealTime, f.startFast||null);
+  return fh!==null&&parseFloat(fh)>=targetH;
 }
 
 function rFasten(){
@@ -1125,7 +1136,7 @@ function rWoche(){
       h('div',{class:'wkgrid'},
         ...days.map((d,i)=>{
           const iso=toISO(d.date),isToday=iso===tod,data=d.data,future=d.date>new Date(new Date().toDateString());
-          const fast=data&&data.fasten&&data.fasten.done;
+          const fast=data&&isFastDone(data);
           const water=data?data.wasser.filter(Boolean).length:0;
           const sport=data?SP.filter(s=>data.sport[s.key].done).length:0;
           return h('div',{class:'wkday'+(isToday?' today':''),onClick:()=>{cur=new Date(d.date);load();sec='dashboard';render();}},
@@ -1153,7 +1164,7 @@ function rWoche(){
       )
     ),
     h('div',{class:'sg3',style:'margin-bottom:11px'},
-      h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--green)'},days.filter(d=>d.data&&d.data.fasten&&d.data.fasten.done).length+'/'+(days.filter(d=>toISO(d.date)<=tod).length)),h('div',{class:'sl'},'Fasten-Tage')),
+      h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--green)'},days.filter(d=>d.data&&isFastDone(d.data)).length+'/'+(days.filter(d=>toISO(d.date)<=tod).length)),h('div',{class:'sl'},'Fasten-Tage')),
       h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--blue)'},days.filter(d=>d.data&&d.data.wasser.filter(Boolean).length>=6).length+'x'),h('div',{class:'sl'},'3L-Tage')),
       h('div',{class:'sc'},h('div',{class:'sv',style:'color:var(--amber)'},days.reduce((a,d)=>a+(d.data?SP.filter(s=>d.data.sport[s.key].done).length:0),0)+'x'),h('div',{class:'sl'},'Sport'))
     ),
