@@ -1461,18 +1461,21 @@ function applyUpdate(){
   window.location.reload();
 }
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('./sw.js').then(reg => {
+  // Add timestamp to SW URL to force browser to re-fetch it every time
+  const swUrl = './sw.js?v=' + Date.now();
+  navigator.serviceWorker.register(swUrl).then(reg => {
+    // Force immediate update check
+    reg.update();
     reg.addEventListener('updatefound', () => {
       const sw = reg.installing;
       sw.addEventListener('statechange', () => {
-        if(sw.state === 'installed' && navigator.serviceWorker.controller){
-          _newSW = sw;
-          document.getElementById('updateBar').style.display = 'block';
+        if(sw.state === 'installed'){
+          // Always reload — whether or not there was a previous SW
+          window.location.reload();
         }
       });
     });
   });
-  // If SW controller changes (after skipWaiting), reload
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     window.location.reload();
   });
