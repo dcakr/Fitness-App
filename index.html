@@ -755,15 +755,10 @@ function rFasten(){
   const eatWidthPct=eatWindowH/24*100;
 
   function onTimeChange(field,val){
-    upDayQ('fasten.'+field,val);
-    setTimeout(()=>{
-      const yl=getYesterdayLastMeal()||day.fasten.manualYesterdayLast||null;
-      const h2=yl?calcFastHours(day.fasten.firstMealTime,yl):null;
-      const ok=h2&&parseFloat(h2)>=targetH;
-      upDayQ('fasten.done',!!ok);
-      const el=document.getElementById('fast-hours');
-      if(el){el.textContent=h2?h2+'h':'–';el.style.color=ok?'var(--green)':h2&&parseFloat(h2)>=(targetH-1)?'var(--amber)':'var(--red)';}
-    },100);
+    setPath(day,'fasten.'+field,val);
+    ls.s(dk(),day);
+    flashSaved();
+    render(); // safe to re-render: time pickers close on their own
   }
 
   return h('div',{},
@@ -799,15 +794,10 @@ function rFasten(){
               el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none';
               el.placeholder=fastEnd;
               el.addEventListener('change',e=>{
-                upDayQ('fasten.manualYesterdayLast',e.target.value);
-                setTimeout(()=>{
-                  const yl=e.target.value;
-                  const h2=calcFastHours(day.fasten.firstMealTime,yl);
-                  const ok=h2&&parseFloat(h2)>=targetH;
-                  upDayQ('fasten.done',!!ok);
-                  const el2=document.getElementById('fast-hours');
-                  if(el2){el2.textContent=h2?h2+'h':'–';el2.style.color=ok?'var(--green)':h2&&parseFloat(h2)>=(targetH-1)?'var(--amber)':'var(--red)';}
-                },100);
+                setPath(day,'fasten.manualYesterdayLast',e.target.value);
+                ls.s(dk(),day);
+                flashSaved();
+                render();
               });
               return el;
             })()
