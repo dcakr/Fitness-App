@@ -731,114 +731,146 @@ function getYesterdayLastMeal(){
 }
 
 function rFasten(){
-  const f=day.fasten;
+  const f=day.fasten||{};
   const prof=getProf()||{};
-  const model=prof.fastModel||'16';
-  const targetH=parseInt(model);
+  const targetH=parseInt(prof.fastModel||'16');
   const eatWindowH=24-targetH;
   const fastEnd=prof.fastEnd||'18:30';
-  const fastEndMins=parseMins(fastEnd);
-  const firstMealTarget=minsToTime((fastEndMins-(eatWindowH*60)+1440)%1440);
-  const eatStartPct=(parseMins(firstMealTarget)||0)/1440*100;
-  const eatWidthPct=eatWindowH/24*100;
 
-  // yesterday last meal: from storage or manually entered
-  const autoYesterday=getYesterdayLastMeal();
-  const startTime=f.startFast||autoYesterday||'';
-  const endTime=f.firstMealTime||'';
-  const hours=calcFastHours(endTime,startTime);
-  const fh=hours?parseFloat(hours):null;
-  const success=fh!==null&&fh>=targetH;
-  const partial=fh!==null&&fh>=(targetH-1);
-  const col=fh===null?'var(--text2)':success?'var(--green)':partial?'var(--amber)':'var(--red)';
+  const autoYest=getYesterdayLastMeal();
+  const selYest=f.startFast||autoYest||null;
+  const selFirst=f.firstMealTime||null;
+  const fhours=calcFastHours(selFirst,selYest);
+  const fhNum=fhours?parseFloat(fhours):null;
+  const success=fhNum!==null&&fhNum>=targetH;
+  const partial=fhNum!==null&&fhNum>=(targetH-1);
+  const col=fhNum===null?'var(--text2)':success?'var(--green)':partial?'var(--amber)':'var(--red)';
 
-  function mkTime(val,onchange){
-    const el=document.createElement('input');
-    el.type='time';el.value=val||'';
-    el.style.cssText='background:var(--bg2);border:none;border-radius:10px;padding:11px 13px;font-size:16px;color:var(--text);width:100%;font-family:inherit;outline:none;-webkit-appearance:none;appearance:none';
-    el.addEventListener('change',e=>{onchange(e.target.value);});
-    return el;
+  function tapBtn(val,selected,color,onClick){
+    const b=document.createElement('div');
+    b.textContent=val;
+    b.style.cssText='padding:10px 13px;border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;' +
+      'border:1.5px solid '+(selected?color:'var(--border)')+';' +
+      'background:'+(selected?color+'22':'var(--bg2)')+';' +
+      'color:'+(selected?color:'var(--text2)');
+    b.addEventListener('click',onClick);
+    return b;
   }
 
-  return h('div',{},
-    card(null,null,
-      h('div',{style:'display:flex;gap:8px;margin-bottom:14px'},
-        h('span',{class:'pill',style:'background:rgba(48,209,88,.2);color:var(--green)'},targetH+'h Fasten'),
-        h('span',{class:'pill',style:'background:rgba(10,132,255,.15);color:var(--blue)'},eatWindowH+'h Essen'),
-        h('span',{class:'pill',style:'background:var(--bg2);color:var(--text2)'},'Ziel bis '+fastEnd)
-      ),
-      h('div',{class:'tlbar'},
-        h('div',{class:'tleat',style:'left:'+eatStartPct+'%;width:'+eatWidthPct+'%'}),
-        h('div',{class:'tllbl',style:'left:'+eatStartPct+'%;width:'+eatWidthPct+'%;color:#000'},firstMealTarget+' – '+fastEnd)
-      ),
-      h('div',{class:'tlticks'},h('span',{},'0:00'),h('span',{},firstMealTarget),h('span',{},fastEnd),h('span',{},'24:00'))
-    ),
+  function btnRow(times,sel,color,saveKey){
+    const wrap=document.createElement('div');
+    wrap.style.cssText='display:flex;flex-wrap:wrap;gap:6px';
+    times.forEach(t=>{
+      wrap.appendChild(tapBtn(t,sel===t,color,()=>{
+        setPath(day,'fasten.'+saveKey,t);
+        ls.s(dk(),day);flashSaved();render();
+      }));
+    });
+    return wrap;
+  }
 
-    // ── Letzte Mahlzeit gestern ──
-    card('Letzte Mahlzeit gestern','var(--text2)',
-      autoYesterday
-        ? h('div',{style:'background:var(--bg2);border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:0'},
-            h('span',{style:'font-size:20px;font-weight:500'},autoYesterday),
-            h('span',{style:'font-size:12px;color:var(--green)'},'Automatisch ✓')
-          )
-        : h('div',{},
-            h('div',{style:'display:flex;flex-wrap:wrap;gap:6px'},
-              ...['17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30'].map(t=>
-                h('div',{
-                  style:'padding:9px 12px;border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;border:1.5px solid '+(startTime===t?'var(--green)':'var(--border)')+';background:'+(startTime===t?'var(--green2)':'var(--bg2)')+';color:'+(startTime===t?'var(--green)':'var(--text2)'),
-                  onClick:()=>{setPath(day,'fasten.startFast',t);ls.s(dk(),day);flashSaved();render();}
-                },t)
-              )
-            )
-          )
-    ),
+  // ── Zeitstrahl ──
+  const fastEndMins=parseMins(fastEnd)||1110;
+  const firstMealMins=((fastEndMins-(eatWindowH*60))+1440)%1440;
+  const firstMealTarget=minsToTime(firstMealMins);
+  const tlStart=firstMealMins/1440*100;
+  const tlWidth=eatWindowH/24*100;
 
-    // ── Erste Mahlzeit heute ──
-    card('Erste Mahlzeit heute','var(--text2)',
-      h('div',{style:'display:flex;flex-wrap:wrap;gap:6px'},
-        ...['07:00','07:30','08:00','08:30','09:00','09:30','10:00','10:30','11:00','11:30','12:00'].map(t=>
-          h('div',{
-            style:'padding:9px 12px;border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;border:1.5px solid '+(endTime===t?'var(--blue)':'var(--border)')+';background:'+(endTime===t?'var(--blue2)':'var(--bg2)')+';color:'+(endTime===t?'var(--blue)':'var(--text2)'),
-            onClick:()=>{setPath(day,'fasten.firstMealTime',t);ls.s(dk(),day);flashSaved();render();}
-          },t)
-        )
-      )
-    ),
+  const wrap=document.createElement('div');
 
-    // ── Ergebnis ──
-    h('div',{style:'background:var(--bg1);border-radius:14px;padding:16px;margin-bottom:11px;display:flex;align-items:center;justify-content:space-between'},
-      h('div',{},
-        h('div',{class:'ctitle',style:'color:var(--text2);margin-bottom:6px'},'Gefastete Stunden'),
-        h('div',{style:'font-size:52px;font-weight:300;line-height:1;color:'+col},fh!==null?hours+'h':'–')
-      ),
-      fh!==null
-        ? h('div',{style:'text-align:right'},
-            h('div',{class:'pill',style:'font-size:14px;font-weight:600;background:var(--bg3);color:'+col},
-              success?'Ziel ✓ '+targetH+'h':partial?'Fast ✓ 🟡':'Ziel verfehlt ❌'),
-            h('div',{style:'font-size:11px;color:var(--text2);margin-top:6px'},
-              (startTime||autoYesterday)+' → '+endTime)
-          )
-        : h('div',{style:'font-size:13px;color:var(--text3)'},
-            !startTime&&!autoYesterday?'Gestern antippen':!endTime?'Heute antippen':'–')
-    ),
-
-    // ── Letzte Mahlzeit heute ──
-    card('Letzte Mahlzeit heute','var(--text2)',
-      h('div',{style:'font-size:11px;color:var(--text2);margin-bottom:8px'},'Wird morgen automatisch als Startzeit geladen'),
-      h('div',{style:'display:flex;flex-wrap:wrap;gap:6px'},
-        ...['17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30'].map(t=>
-          h('div',{
-            style:'padding:9px 12px;border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;border:1.5px solid '+(f.lastMealTime===t?'var(--amber)':'var(--border)')+';background:'+(f.lastMealTime===t?'var(--amber2)':'var(--bg2)')+';color:'+(f.lastMealTime===t?'var(--amber)':'var(--text2)'),
-            onClick:()=>{setPath(day,'fasten.lastMealTime',t);ls.s(dk(),day);flashSaved();render();}
-          },t)
-        )
-      )
-    ),
-
-    h('div',{class:'ban a'},h('div',{class:'btit',style:'color:var(--amber)'},'Abend-Snack (bis '+fastEnd+')'),h('div',{class:'btxt'},SNACKS.join(' · '))),
-    card('Notiz','var(--text2)',field('',inp(f.note||'',v=>upDayQ('fasten.note',v),'Wie lief das Fasten heute?'))),
-    h('div',{class:'se'})
+  // timeline card
+  const tlCard=document.createElement('div');
+  tlCard.className='card';
+  const pills=h('div',{style:'display:flex;gap:8px;margin-bottom:14px'},
+    h('span',{class:'pill',style:'background:rgba(48,209,88,.2);color:var(--green)'},targetH+'h Fasten'),
+    h('span',{class:'pill',style:'background:rgba(10,132,255,.15);color:var(--blue)'},eatWindowH+'h Essen'),
+    h('span',{class:'pill',style:'background:var(--bg2);color:var(--text2)'},'Ziel: bis '+fastEnd)
   );
+  const tlBar=document.createElement('div');tlBar.className='tlbar';
+  const tlEat=document.createElement('div');tlEat.className='tleat';
+  tlEat.style.left=tlStart+'%';tlEat.style.width=tlWidth+'%';
+  const tlLbl=document.createElement('div');tlLbl.className='tllbl';
+  tlLbl.style.cssText='left:'+tlStart+'%;width:'+tlWidth+'%;color:#000';
+  tlLbl.textContent=firstMealTarget+' – '+fastEnd;
+  tlBar.append(tlEat,tlLbl);
+  const tlTicks=h('div',{class:'tlticks'},h('span',{},'0:00'),h('span',{},firstMealTarget),h('span',{},fastEnd),h('span',{},'24:00'));
+  tlCard.append(pills,tlBar,tlTicks);
+  wrap.appendChild(tlCard);
+
+  // Yesterday card
+  const yCard=document.createElement('div');yCard.className='card';
+  const yTitle=document.createElement('div');yTitle.className='ctitle';
+  yTitle.style.color='var(--text2)';
+  yTitle.textContent='Letzte Mahlzeit gestern';
+  yCard.appendChild(yTitle);
+  if(autoYest){
+    const autoRow=document.createElement('div');
+    autoRow.style.cssText='background:var(--bg2);border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center';
+    autoRow.innerHTML='<span style="font-size:20px;font-weight:500">'+autoYest+'</span><span style="font-size:12px;color:var(--green)">Automatisch ✓</span>';
+    yCard.appendChild(autoRow);
+  } else {
+    yCard.appendChild(btnRow(['17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30'],selYest,'var(--green)','startFast'));
+  }
+  wrap.appendChild(yCard);
+
+  // First meal card
+  const fCard=document.createElement('div');fCard.className='card';
+  const fTitle=document.createElement('div');fTitle.className='ctitle';
+  fTitle.style.color='var(--text2)';
+  fTitle.textContent='Erste Mahlzeit heute';
+  fCard.appendChild(fTitle);
+  fCard.appendChild(btnRow(['07:00','07:30','08:00','08:30','09:00','09:30','10:00','10:30','11:00','11:30','12:00'],selFirst,'var(--blue)','firstMealTime'));
+  wrap.appendChild(fCard);
+
+  // Result
+  const resCard=document.createElement('div');resCard.className='card';
+  resCard.style.marginBottom='11px';
+  const resInner=document.createElement('div');
+  resInner.style.cssText='display:flex;align-items:center;justify-content:space-between';
+  const resLeft=document.createElement('div');
+  const resLbl=document.createElement('div');resLbl.className='ctitle';resLbl.style.color='var(--text2)';resLbl.textContent='Gefastete Stunden';
+  const resNum=document.createElement('div');resNum.style.cssText='font-size:56px;font-weight:300;line-height:1;color:'+col;
+  resNum.textContent=fhNum!==null?fhours+'h':'–';
+  resLeft.append(resLbl,resNum);
+  const resRight=document.createElement('div');resRight.style.textAlign='right';
+  if(fhNum!==null){
+    const badge=document.createElement('div');badge.className='pill';
+    badge.style.cssText='background:var(--bg3);color:'+col+';font-size:14px;font-weight:600';
+    badge.textContent=success?'Ziel ✓ '+targetH+'h':partial?'Fast ✓ 🟡':'Ziel verfehlt ❌';
+    const sub=document.createElement('div');
+    sub.style.cssText='font-size:11px;color:var(--text2);margin-top:6px';
+    sub.textContent=selYest+' → '+selFirst;
+    resRight.append(badge,sub);
+  } else {
+    resRight.style.cssText='font-size:13px;color:var(--text3)';
+    resRight.textContent=!selYest?'Gestern wählen':!selFirst?'Heute wählen':'';
+  }
+  resInner.append(resLeft,resRight);
+  resCard.appendChild(resInner);
+  wrap.appendChild(resCard);
+
+  // Last meal today
+  const lCard=document.createElement('div');lCard.className='card';
+  const lTitle=document.createElement('div');lTitle.className='ctitle';lTitle.style.color='var(--text2)';
+  lTitle.textContent='Letzte Mahlzeit heute';
+  const lSub=document.createElement('div');lSub.style.cssText='font-size:11px;color:var(--text2);margin-bottom:8px';
+  lSub.textContent='Wird morgen automatisch geladen';
+  lCard.append(lTitle,lSub);
+  lCard.appendChild(btnRow(['17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30'],f.lastMealTime||null,'var(--amber)','lastMealTime'));
+  wrap.appendChild(lCard);
+
+  // Snack banner
+  const ban=document.createElement('div');ban.className='ban a';
+  ban.innerHTML='<div class="btit" style="color:var(--amber)">Abend-Snack (bis '+fastEnd+')</div><div class="btxt">'+SNACKS.join(' · ')+'</div>';
+  wrap.appendChild(ban);
+
+  // Note
+  const noteCard=card('Notiz','var(--text2)',field('',inp(f.note||'',v=>upDayQ('fasten.note',v),'Wie lief das Fasten heute?')));
+  wrap.appendChild(noteCard);
+
+  const se=document.createElement('div');se.className='se';
+  wrap.appendChild(se);
+  return wrap;
 }
 
 function rSport(){
